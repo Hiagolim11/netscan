@@ -90,12 +90,18 @@ function validateSudoPassword(password) {
   });
 }
 
-function startProcess(opts, useSudo) {
+// sudoMode: null = sem sudo; true = sudo sem senha (-n); string = senha (passada via -S)
+function startProcess(opts, sudoMode) {
   const args = buildArgs(opts);
   let cmd, spawnArgs;
-  if (useSudo) {
+  const withPassword = typeof sudoMode === 'string';
+  if (sudoMode === true) {
     cmd = 'sudo';
-    spawnArgs = ['-n', 'python3', ...args]; // credencial já cacheada quando necessário
+    spawnArgs = ['-n', 'python3', ...args];
+  } else if (withPassword) {
+    cmd = 'sudo';
+    // -S lê a senha do stdin; a senha é consumida só pela autenticação do sudo
+    spawnArgs = ['-S', '-p', '', 'python3', ...args];
   } else {
     cmd = 'python3';
     spawnArgs = args;
@@ -107,6 +113,13 @@ function startProcess(opts, useSudo) {
   } catch (e) {
     currentProc = null;
     return { ok: false, error: String(e) };
+  }
+
+  if (withPassword) {
+    try {
+      currentProc.stdin.write(sudoMode + '\n');
+      currentProc.stdin.end();
+    } catch (_) {}
   }
 
   const rl = readline.createInterface({ input: currentProc.stdout });
@@ -179,7 +192,8 @@ ipcMain.handle('scan:start-sudo', async (_evt, opts, password) => {
   if (currentProc) return { ok: false, error: 'Já existe uma varredura em andamento.' };
   const v = await validateSudoPassword(password || '');
   if (!v.ok) return { ok: false, badPassword: true, error: v.error || 'senha incorreta' };
-  return startProcess(opts, true);
+  // passa a senha direto ao sudo do scan (-S), sem depender do cache de credenciais
+  return startProcess(opts, password || '');
 });
 
 ipcMain.handle('scan:stop', () => ({ ok: killScan() }));
