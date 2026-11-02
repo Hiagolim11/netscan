@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>netscan</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="bar">
+    <div class="word">netscan</div>
+    <nav class="bar-meta">
+      <span id="barTarget" class="bar-target">rede local</span>
+      <span id="barPhase" class="bar-phase">ocioso</span>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <!-- Painel de controle -->
+    <section class="panel" aria-label="Controles">
+      <h2 class="panel-title">Varredura</h2>
+
+      <label class="field">
+        <span class="field-label">Alvo</span>
+        <input id="target" type="text" placeholder="auto (sub-rede local)" spellcheck="false" />
+        <span class="field-hint">CIDR ou IP. Vazio = detecta sua sub-rede.</span>
+      </label>
+
+      <label class="check">
+        <input id="fast" type="checkbox" />
+        <span>Rápido — só serviços, sem scripts de vulnerabilidade</span>
+      </label>
+
+      <label class="check">
+        <input id="deep" type="checkbox" />
+        <span>Profunda — todas as portas + scripts extras (lenta)</span>
+      </label>
+
+      <label class="check">
+        <input id="sudo" type="checkbox" checked />
+        <span>sudo (ARP, detecção de SO e mais scripts; pede senha se preciso)</span>
+      </label>
+
+      <div class="actions">
+        <button id="startBtn" class="btn btn-go">Iniciar varredura</button>
+        <button id="stopBtn" class="btn btn-stop" disabled>Parar</button>
+      </div>
+
+      <div class="legal">Use somente em redes próprias ou com autorização explícita.</div>
+
+      <h2 class="panel-title log-title">Registro</h2>
+      <div id="log" class="log" aria-live="polite"></div>
+    </section>
+
+    <!-- Resultados -->
+    <section class="content">
+      <div class="stats">
+        <div class="stat">
+          <div id="statHosts" class="stat-num">0</div>
+          <div class="stat-cap">dispositivos</div>
+        </div>
+        <div class="stat">
+          <div id="statPorts" class="stat-num">0</div>
+          <div class="stat-cap">portas abertas</div>
+        </div>
+        <div class="stat stat-danger">
+          <div id="statVulns" class="stat-num">0</div>
+          <div class="stat-cap">vulnerabilidades</div>
+          <div id="sevBreak" class="sev-break"></div>
+        </div>
+      </div>
+
+      <div id="empty" class="empty">
+        <p class="empty-big">A rede ainda não foi varrida.</p>
+        <p class="empty-sub">Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.</p>
+      </div>
+
+      <ol id="devices" class="devices" hidden></ol>
+
+      <footer id="reportBar" class="report" hidden>
+        <span id="reportText"></span>
+        <button id="openReport" class="btn btn-ghost">Abrir pasta do relatório</button>
+      </footer>
+    </section>
+  </main>
+
+  <!-- Modal de senha sudo -->
+  <div id="pwOverlay" class="overlay" hidden>
+    <form id="pwForm" class="modal" autocomplete="off">
+      <h2 class="modal-title">Senha do sudo</h2>
+      <p class="modal-sub">A varredura precisa de privilégios de root (ARP, detecção de SO e scripts). Digite sua senha para continuar.</p>
+      <input id="pwInput" class="pw-input" type="password" placeholder="senha" autocomplete="current-password" />
+      <div id="pwError" class="pw-error" hidden>Senha incorreta. Tente novamente.</div>
+      <div class="modal-actions">
+        <button type="button" id="pwCancel" class="btn btn-stop">Cancelar</button>
+        <button type="submit" id="pwOk" class="btn btn-go">Confirmar</button>
+      </div>
+      <div class="modal-note">A senha é usada só para autenticar o sudo nesta máquina; não é gravada nem registrada.</div>
+    </form>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

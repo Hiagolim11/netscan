@@ -1,0 +1,57 @@
+{
+  "name": "netscan-desktop",
+  "version": "1.0.0",
+  "description": "Varredura de rede com descoberta de dispositivos e checagem de vulnerabilidades.",
+  "homepage": "https://localhost/netscan",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --linux AppImage deb"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.netscan.desktop",
+    "productName": "netscan",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "netscan.py",
+        "to": "netscan.py"
+      }
+    ],
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Network",
+      "maintainer": "netscan <netscan@localhost>",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "netscan-${version}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "nmap",
+        "python3",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
+    }
+  }
+}

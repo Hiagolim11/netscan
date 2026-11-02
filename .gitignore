@@ -1,0 +1,16 @@
+# dependências
+node_modules/
+__pycache__/
+*.pyc
+
+# artefatos de build
+dist/
+build/*.AppImage
+build/*.deb
+
+# resultados de varreduras
+resultados_*/
+
+# sistema
+.DS_Store
+*.log
