@@ -9,7 +9,8 @@ const els = {
   toolbar: $('toolbar'), filter: $('filter'), onlyVuln: $('onlyVuln'), expandAll: $('expandAll'),
   openHtml: $('openHtml'), progress: $('progress'), progressFill: $('progressFill'),
   analysis: $('analysis'), anRisk: $('anRisk'), anLevel: $('anLevel'), anSummary: $('anSummary'),
-  anTop: $('anTop'), anTopWrap: $('anTopWrap'),
+  anTop: $('anTop'), anTopWrap: $('anTopWrap'), anAlerts: $('anAlerts'),
+  svcStatus: $('svcStatus'), svcEvery: $('svcEvery'), svcInstall: $('svcInstall'), svcRemove: $('svcRemove'),
   noMatch: $('noMatch'), emptyBig: $('emptyBig'), emptySub: $('emptySub'), clearLog: $('clearLog'), repeat: $('repeat'), history: $('history'),
   start: $('startBtn'), stop: $('stopBtn'),
   log: $('log'),
@@ -161,7 +162,7 @@ function renderDevice(h) {
   node.classList.toggle('clean', !vulns.length);
   const typeEl = node.querySelector('.device-type');
   typeEl.hidden = !h.type_label;
-  typeEl.textContent = h.type_label || '';
+  typeEl.textContent = (h.type_label || '') + (h.trusted ? ' · confiável' : '');
   const riskEl = node.querySelector('.badge-risk');
   riskEl.hidden = h.risk == null;
   riskEl.className = 'badge-risk lvl-' + (h.risk_level || 'none');
@@ -183,6 +184,7 @@ function renderDevice(h) {
   const meta = [];
   if (h.mac) meta.push('MAC ' + h.mac);
   if (h.vendor) meta.push(h.vendor);
+  if (h.first_seen) meta.push(`visto desde ${h.first_seen.slice(0, 16)} (${h.seen_count}x)`);
   if (h.ipv6 && h.ipv6.length) meta.push('IPv6 ' + h.ipv6.join(', '));
   const hi = h.host_info || {};
   if (hi['smb-os-discovery'] && !(h.os && h.os.name)) meta.push('SO ' + hi['smb-os-discovery']);
@@ -193,7 +195,8 @@ function renderDevice(h) {
   html += '<div class="dev-actions">' +
     `<button class="btn btn-ghost act-rescan" data-act="rescan"${state.running ? ' disabled' : ''}>Re-escanear</button>` +
     '<button class="btn btn-ghost" data-act="copy">Copiar IP</button>' +
-    '<button class="btn btn-ghost" data-act="copyjson">Copiar JSON</button>';
+    '<button class="btn btn-ghost" data-act="copyjson">Copiar JSON</button>' +
+    (h.inv_key ? `<button class="btn btn-ghost" data-act="trust">${h.trusted ? 'Deixar de confiar' : 'Confiar neste aparelho'}</button>` : '');
   for (const p of ports.filter(isWeb)) {
     const tls = isTls(p);
     html += `<button class="btn btn-ghost" data-act="web" data-port="${esc(p.port)}" data-tls="${tls ? 1 : ''}">Abrir ${tls ? 'https' : 'http'}:${esc(p.port)}</button>`;
@@ -266,9 +269,14 @@ function vulnChips(v) {
   return chips.length ? `<div class="chips">${chips.join('')}</div>` : '';
 }
 
-function renderAnalysis(an) {
+const ALERT_LABEL = { critical: 'CRÍTICO', high: 'ALTO', medium: 'MÉDIO', low: 'BAIXO' };
+function renderAnalysis(an, alerts) {
   els.analysis.hidden = !an;
   if (!an) return;
+  alerts = alerts || [];
+  els.anAlerts.hidden = !alerts.length;
+  els.anAlerts.innerHTML = alerts.map((a) =>
+    `<li class="an-alert"><span class="sev-tag c-${esc(a.level)}">${esc(ALERT_LABEL[a.level] || a.level)}</span> ${esc(a.text)}</li>`).join('');
   els.anRisk.textContent = an.risk;
   els.anRisk.className = 'an-risk lvl-' + an.level;
   els.anLevel.textContent = an.label.toUpperCase();
@@ -326,6 +334,14 @@ function deviceAction(ip, btn) {
   const h = state.hosts.get(ip) || { ip };
   switch (btn.dataset.act) {
     case 'copy': copy(ip, 'IP'); break;
+    case 'trust':
+      window.netscan.trust(h.inv_key, !h.trusted).then((res) => {
+        if (!res || !res.ok) { logLine('[!] ' + ((res && res.error) || 'Não consegui atualizar o inventário.'), 'ln-danger'); return; }
+        h.trusted = !h.trusted;
+        logLine(`[+] ${ip} ${h.trusted ? 'marcado como confiável: não gera mais alerta de aparelho desconhecido' : 'não é mais confiável'}.`, 'ln-accent');
+        renderDevice(h);
+      });
+      break;
     case 'copyjson': copy(JSON.stringify(h, null, 2), 'JSON do dispositivo'); break;
     case 'edb': window.netscan.openEdb(btn.dataset.id); break;
     case 'web': window.netscan.openWeb(ip, btn.dataset.port, !!btn.dataset.tls); break;
@@ -432,6 +448,13 @@ window.netscan.onEvent((evt) => {
       state.outdir = evt.outdir;
       els.barTarget.textContent = evt.target + (evt.deep ? ' · profunda' : '') + (evt.root ? ' · root' : '');
       break;
+    case 'service':
+      logLine(evt.action === 'install' ? `[+] Monitoramento ativado: a cada ${evt.every} min, mesmo com o app fechado.`
+        : '[+] Monitoramento em segundo plano desativado.', 'ln-accent');
+      els.barPhase.textContent = evt.action === 'install' ? 'serviço ativado' : 'serviço desativado';
+      refreshService();
+      refreshHistory();
+      break;
     case 'phase':
       setProgress(evt.phase === 'discovery' ? 'busy' : 'value', 0);
       els.barPhase.textContent = evt.phase === 'discovery' ? 'descobrindo' : 'varrendo';
@@ -472,9 +495,12 @@ window.netscan.onEvent((evt) => {
         els.emptyBig.textContent = 'Nenhum dispositivo encontrado.';
         els.emptySub.textContent = 'Confira o alvo, tente com sudo ou marque "Sem ping" nas opções avançadas.';
       }
+      // dados finais (inventário, análise) só existem no fim: redesenha com eles
+      for (const h of evt.hosts || []) { state.hosts.set(h.ip, h); renderDevice(h); }
+      recount();
       markDiff(evt.diff);
-      notifyDiff(evt.diff);
-      if (evt.analysis && !(state.pendingOpts || {}).single) renderAnalysis(evt.analysis);
+      if (evt.analysis && !(state.pendingOpts || {}).single) renderAnalysis(evt.analysis, evt.alerts);
+      notifyAlerts(evt.alerts);
       sortDevices();
       refreshHistory();
       scheduleNext();
@@ -560,14 +586,32 @@ function scheduleNext() {
   els.stop.disabled = false;
 }
 
-function notifyDiff(diff) {
-  if (!diff) return;
-  const newVulns = Object.values(diff.changed).reduce((a, d) => a + d.new_vulns.length, 0);
-  if (!diff.new_hosts.length && !newVulns) return;
-  const body = [diff.new_hosts.length && `${diff.new_hosts.length} dispositivo(s) novo(s): ${diff.new_hosts.join(', ')}`,
-    newVulns && `${newVulns} vulnerabilidade(s) nova(s)`].filter(Boolean).join(' · ');
-  try { new Notification('netscan — mudanças na rede', { body }); } catch (_) {}
+function notifyAlerts(alerts) {
+  if (!alerts || !alerts.length) return;
+  const body = alerts.slice(0, 3).map((a) => a.text).join('\n') + (alerts.length > 3 ? `\n+${alerts.length - 3} alerta(s)` : '');
+  try { new Notification(`netscan — ${alerts.length} alerta(s)`, { body }); } catch (_) {}
 }
+
+// ---- serviço em segundo plano (systemd) ----
+
+async function refreshService() {
+  const s = await window.netscan.serviceStatus();
+  els.svcRemove.hidden = !(s && s.installed);
+  els.svcInstall.textContent = s && s.installed ? 'Atualizar' : 'Ativar';
+  if (!s || !s.available) els.svcStatus.textContent = 'systemd indisponível neste sistema.';
+  else if (!s.installed) els.svcStatus.textContent = 'Desativado.';
+  else els.svcStatus.textContent = (s.active ? 'Ativo' : 'Instalado, parado') + (s.next ? ` · próxima: ${s.next}` : '');
+  els.svcStatus.classList.toggle('svc-on', !!(s && s.active));
+}
+
+function serviceAction(action) {
+  if (state.running) return;
+  const every = Math.min(10080, Math.max(5, parseInt(els.svcEvery.value, 10) || 60));
+  // pede sudo sempre: instalar/remover unidades do systemd exige root
+  startScan({ ...currentOpts(), useSudo: true, compare: '', repeat: 0, serviceAction: action, every }, true);
+}
+els.svcInstall.addEventListener('click', () => serviceAction('install'));
+els.svcRemove.addEventListener('click', () => serviceAction('uninstall'));
 
 // ---- histórico ----
 
@@ -582,7 +626,8 @@ async function refreshHistory() {
     const bad = (r.totals.critical || 0) + (r.totals.high || 0);
     return `<li><button class="history-item" data-name="${esc(r.name)}">` +
       `<span class="history-ts">${esc(r.timestamp)}</span>` +
-      `<span class="history-meta">${esc(r.target)} · ${r.hosts} disp.${bad ? ` · <b>${bad} graves</b>` : ''}</span></button></li>`;
+      `<span class="history-meta">${r.service ? '<i>serviço</i> · ' : ''}${esc(r.target)} · ${r.hosts} disp.` +
+      `${r.risk != null ? ` · risco ${r.risk}` : ''}${bad ? ` · <b>${bad} graves</b>` : ''}${r.alerts ? ` · <b>${r.alerts} alerta(s)</b>` : ''}</span></button></li>`;
   }).join('');
 }
 
@@ -599,7 +644,7 @@ els.history.addEventListener('click', async (e) => {
   for (const h of r.hosts || []) { state.hosts.set(h.ip, h); renderDevice(h); }
   recount();
   markDiff(r.diff);
-  renderAnalysis(r.analysis);
+  renderAnalysis(r.analysis, r.alerts);
   sortDevices();
   els.reportText.textContent = `Relatório de ${r.timestamp} em ${res.outdir}`;
   els.report.hidden = false;
@@ -614,7 +659,9 @@ els.devices.addEventListener('change', (e) => {
   renderDevice(h);
 });
 
+recount();
 refreshHistory();
+refreshService();
 
 els.stop.addEventListener('click', async () => {
   state.monitorOff = true;

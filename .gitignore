@@ -15,3 +15,5 @@ resultados_*/
 .DS_Store
 *.log
 rescan_*/
+inventario.json
+inventario.json.tmp

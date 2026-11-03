@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('netscan', {
   monitorStop: () => ipcRenderer.invoke('monitor:stop'),
   historyList: () => ipcRenderer.invoke('history:list'),
   historyLoad: (name) => ipcRenderer.invoke('history:load', name),
+  trust: (key, on) => ipcRenderer.invoke('inventory:trust', key, on),
+  serviceStatus: () => ipcRenderer.invoke('service:status'),
   openPath: (p) => ipcRenderer.invoke('open:path', p),
   openEdb: (id) => ipcRenderer.invoke('open:edb', id),
   openWeb: (ip, port, tls) => ipcRenderer.invoke('open:web', ip, port, tls),

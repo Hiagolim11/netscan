@@ -152,6 +152,21 @@ class TestNetscan(unittest.TestCase):
         self.assertIn("Hikvision", r["ports"][0]["scripts"]["http-title"])
         self.assertEqual(r["host_info"]["smb-os-discovery"], "Windows 10 Pro 19045")
 
+    def test_cert_expiring(self):
+        from datetime import datetime, timedelta
+        soon = (datetime.now() + timedelta(days=10)).strftime("%Y-%m-%d")
+        sev, title = netscan.config_finding("ssl-cert", f"Not valid after:  {soon}T00:00:00")
+        self.assertEqual(sev, "low")
+        self.assertIn("vence em", title)
+
+    def test_service_scan_args(self):
+        import argparse
+        a = argparse.Namespace(target="192.168.0.0/24", ports=None, exclude="192.168.0.1", fast=True, deep=False,
+                               udp=False, ipv6=True, no_ping=False, default_creds=False, offline=False,
+                               workers=4, host_timeout=600)
+        self.assertEqual(netscan.service_scan_args(a), ["-t", "192.168.0.0/24", "-x", "192.168.0.1", "--fast",
+                                                        "--ipv6", "-w", "4", "--host-timeout", "600"])
+
 
 if __name__ == "__main__":
     unittest.main()

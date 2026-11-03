@@ -87,6 +87,18 @@
           <input id="repeat" type="number" min="0" max="1440" value="0" />
           <span class="field-hint">0 = uma vez só. Avisa quando surge dispositivo ou vulnerabilidade nova.</span>
         </label>
+        <div class="svc">
+          <span class="field-label">Monitoramento em segundo plano</span>
+          <span id="svcStatus" class="svc-status">verificando…</span>
+          <div class="svc-row">
+            <span>a cada</span>
+            <input id="svcEvery" type="number" min="5" max="10080" value="60" aria-label="Intervalo em minutos" />
+            <span>min</span>
+            <button id="svcInstall" class="btn btn-ghost" type="button">Ativar</button>
+            <button id="svcRemove" class="btn btn-ghost" type="button" hidden>Desativar</button>
+          </div>
+          <span class="field-hint">Roda mesmo com o app fechado (systemd; pede sudo) usando as opções acima. Para receber alertas no celular, configure webhook/Telegram em /etc/netscan.env.</span>
+        </div>
       </details>
 
       <h2 class="panel-title log-title">Histórico</h2>
@@ -127,6 +139,7 @@
             <div class="an-cap">risco da rede · 0 a 100</div>
           </div>
         </div>
+        <ul id="anAlerts" class="an-alerts" hidden></ul>
         <ul id="anSummary" class="an-summary"></ul>
         <div id="anTopWrap" hidden>
           <h3 class="an-title">Corrija primeiro</h3>

@@ -12,6 +12,8 @@ let currentProc = null;
 // senha do sudo guardada só em memória e só enquanto o monitoramento estiver ativo
 let monitorPassword = null;
 const REPORT_DIR_RE = /^resultados_[\w-]+$/;
+const SERVICE_DIR = '/var/lib/netscan'; // onde o serviço do systemd grava (svc/<pasta> no histórico)
+const KEY_RE = /^[0-9A-F:.]{7,45}$/i;    // chave do inventário: MAC ou IP
 
 function createWindow() {
   win = new BrowserWindow({
@@ -67,6 +69,11 @@ function buildArgs(opts) {
   if (opts && opts.noPing) args.push('--no-ping');
   if (opts && opts.ipv6) args.push('--ipv6');
   if (opts && opts.workers) args.push('-w', String(parseInt(opts.workers, 10) || 1));
+  if (opts && opts.defaultCreds) args.push('--default-creds');
+  if (opts && opts.serviceAction === 'uninstall') return [scriptPath(), '--json-stream', '--uninstall-service'];
+  if (opts && opts.serviceAction === 'install') {
+    return args.concat('--install-service', '--every', String(parseInt(opts.every, 10) || 60));
+  }
   // re-scan de um host vai para outra pasta: não vira a "última varredura" da comparação
   if (opts && opts.single) {
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
@@ -79,12 +86,17 @@ function buildArgs(opts) {
   return args;
 }
 
-// caminho do relatorio.json de uma pasta do histórico (só nomes resultados_*, sem ../)
+// caminho do relatorio.json de uma pasta do histórico (só nomes resultados_*, sem ../);
+// "svc/resultados_*" aponta para as varreduras do serviço em segundo plano
 function reportFile(name) {
-  if (!REPORT_DIR_RE.test(String(name))) return null;
-  const f = path.join(workDir(), name, 'relatorio.json');
+  const svc = String(name).startsWith('svc/');
+  const dir = svc ? String(name).slice(4) : String(name);
+  if (!REPORT_DIR_RE.test(dir)) return null;
+  const f = path.join(svc ? SERVICE_DIR : workDir(), dir, 'relatorio.json');
   return fs.existsSync(f) ? f : null;
 }
+
+function inventoryPath() { return path.join(workDir(), 'inventario.json'); }
 
 // relatorio.json da varredura mais recente em workDir (nomes resultados_<data> ordenam por data)
 function latestReport() {
@@ -246,19 +258,48 @@ ipcMain.handle('scan:stop', () => ({ ok: killScan() }));
 ipcMain.handle('monitor:stop', () => { monitorPassword = null; return { ok: true }; });
 
 ipcMain.handle('history:list', () => {
-  try {
-    return fs.readdirSync(workDir())
-      .filter((d) => REPORT_DIR_RE.test(d) && reportFile(d))
-      .sort().reverse().slice(0, 30)
-      .map((name) => {
-        try {
-          const r = JSON.parse(fs.readFileSync(reportFile(name), 'utf8'));
-          return { name, timestamp: r.timestamp, target: r.target, hosts: (r.hosts || []).length, totals: r.totals || {} };
-        } catch (_) { return null; }
-      })
-      .filter(Boolean);
-  } catch (_) { return []; }
+  const list = (dir, prefix) => {
+    try { return fs.readdirSync(dir).filter((d) => REPORT_DIR_RE.test(d)).map((d) => prefix + d); } catch (_) { return []; }
+  };
+  return list(workDir(), '').concat(list(SERVICE_DIR, 'svc/'))
+    .filter((name) => reportFile(name))
+    .sort((a, b) => b.replace('svc/', '').localeCompare(a.replace('svc/', '')))
+    .slice(0, 40)
+    .map((name) => {
+      try {
+        const r = JSON.parse(fs.readFileSync(reportFile(name), 'utf8'));
+        return { name, service: name.startsWith('svc/'), timestamp: r.timestamp, target: r.target,
+          hosts: (r.hosts || []).length, totals: r.totals || {}, risk: r.analysis ? r.analysis.risk : null,
+          alerts: (r.alerts || []).length };
+      } catch (_) { return null; }
+    })
+    .filter(Boolean);
 });
+
+// marca/desmarca um aparelho como confiável no inventário (sem alerta de "desconhecido")
+ipcMain.handle('inventory:trust', (_evt, key, trusted) => {
+  if (!KEY_RE.test(String(key))) return { ok: false };
+  try {
+    const inv = JSON.parse(fs.readFileSync(inventoryPath(), 'utf8'));
+    if (!inv[key]) return { ok: false, error: 'Aparelho não está no inventário.' };
+    inv[key].trusted = !!trusted;
+    const tmp = inventoryPath() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(inv, null, 1));
+    fs.renameSync(tmp, inventoryPath());
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e.message || e) }; }
+});
+
+// estado do monitoramento em segundo plano (systemctl não precisa de root para consultar)
+ipcMain.handle('service:status', () => new Promise((resolve) => {
+  execFile('systemctl', ['show', 'netscan.timer', '-p', 'ActiveState', '-p', 'NextElapseUSecRealtime',
+    '-p', 'LastTriggerUSec', '-p', 'LoadState'], (err, out) => {
+    if (err) return resolve({ available: false });
+    const kv = Object.fromEntries(String(out).trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+    resolve({ available: true, installed: kv.LoadState === 'loaded', active: kv.ActiveState === 'active',
+      next: kv.NextElapseUSecRealtime || '', last: kv.LastTriggerUSec || '' });
+  });
+}));
 
 ipcMain.handle('history:load', (_evt, name) => {
   const f = reportFile(name);

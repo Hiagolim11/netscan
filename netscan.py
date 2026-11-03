@@ -39,6 +39,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import analysis
+import automation
 
 
 JSON_STREAM = False
@@ -636,8 +637,12 @@ def config_finding(sid, output):
             return ("high" if m.group(1) == "f" else "medium"), f"TLS fraco (nota {m.group(1).upper()})"
     if sid == "ssl-cert":
         m = re.search(r"not valid after:\s*(\d{4}-\d{2}-\d{2})", low)
-        if m and m.group(1) < datetime.now().strftime("%Y-%m-%d"):
-            return "low", f"Certificado TLS expirado em {m.group(1)}"
+        if m:
+            days = (datetime.strptime(m.group(1), "%Y-%m-%d") - datetime.now()).days
+            if days < 0:
+                return "low", f"Certificado TLS expirado em {m.group(1)}"
+            if days < 30:
+                return "low", f"Certificado TLS vence em {days + 1} dia(s) ({m.group(1)})"
     if sid in ("snmp-info", "snmp-sysdescr") and low:
         return "medium", "SNMP responde com a community padrão"
     if sid == "smb-protocols" and "smbv1" in low:
@@ -813,6 +818,11 @@ def write_html(report, path):
     ]
     parts += [f"<span class='tag' style='background:{colors[s]}'>{t[s]} {s}</span> " for s in SEVERITY_ORDER]
     parts.append("</p>")
+    if report.get("alerts"):
+        parts.append("<div class='host'><h2>Alertas</h2><ul>")
+        parts += [f"<li><span class='tag' style='background:{colors.get(a['level'], '#8a8f98')}'>{e(a['level'].upper())}</span> {e(a['text'])}</li>"
+                  for a in report["alerts"]]
+        parts.append("</ul></div>")
     an = report.get("analysis")
     if an:
         parts.append(f"<div class='host'><h2>Análise automática — risco {e(an['label'])} ({an['risk']}/100)</h2><ul>")
@@ -891,7 +901,7 @@ def write_csv(hosts, path):
                                    v.get("epss") if v.get("epss") is not None else ""])
 
 
-def write_report(target, hosts, outdir, diff=None, analysis_=None):
+def write_report(target, hosts, outdir, diff=None, analysis_=None, alerts=None):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     totals = {s: 0 for s in SEVERITY_ORDER}
     for h in hosts:
@@ -904,6 +914,8 @@ def write_report(target, hosts, outdir, diff=None, analysis_=None):
         report["diff"] = diff
     if analysis_ is not None:
         report["analysis"] = analysis_
+    if alerts is not None:
+        report["alerts"] = alerts
     json_path = os.path.join(outdir, "relatorio.json")
     with open(json_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
@@ -923,6 +935,10 @@ def write_report(target, hosts, outdir, diff=None, analysis_=None):
         "=" * 72,
         "",
     ]
+    if alerts:
+        lines.append("ALERTAS")
+        lines += [f"  [{a['level'].upper()}] {a['text']}" for a in alerts]
+        lines.append("")
     if analysis_:
         lines.append("ANÁLISE AUTOMÁTICA")
         lines += [f"  {s}" for s in analysis_["summary"]]
@@ -1006,6 +1022,20 @@ def write_report(target, hosts, outdir, diff=None, analysis_=None):
     return totals
 
 
+def service_scan_args(args):
+    """Opções de varredura repassadas ao serviço do systemd."""
+    out = []
+    for flag, val in (("-t", args.target), ("-p", args.ports), ("-x", args.exclude)):
+        if val:
+            out += [flag, val]
+    for flag, on in (("--fast", args.fast), ("--deep", args.deep), ("--udp", args.udp), ("--ipv6", args.ipv6),
+                     ("--no-ping", args.no_ping), ("--default-creds", args.default_creds), ("--offline", args.offline)):
+        if on:
+            out.append(flag)
+    out += ["-w", str(args.workers), "--host-timeout", str(args.host_timeout)]
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Varredura de rede: descoberta de dispositivos + checagem de vulnerabilidades (nmap).",
@@ -1025,7 +1055,12 @@ def main():
     parser.add_argument("-6", "--ipv6", action="store_true", help="Também descobre vizinhos IPv6 (multicast) e procura portas abertas só via IPv6.")
     parser.add_argument("--default-creds", action="store_true", help="Testa senhas padrão de fábrica/vazias (faz tentativas de login; desligado por padrão).")
     parser.add_argument("--offline", action="store_true", help="Não baixa CISA KEV/EPSS (usa só o cache local).")
-    parser.add_argument("--compare", help="relatorio.json de uma varredura anterior para mostrar o que mudou.")
+    parser.add_argument("--compare", help="relatorio.json de uma varredura anterior (ou 'latest' para a mais recente) para mostrar o que mudou.")
+    parser.add_argument("--notify", action="store_true", help="Envia os alertas (webhook/Telegram/desktop, configurados por variáveis de ambiente).")
+    parser.add_argument("--keep", type=int, default=0, help="Mantém só as N varreduras mais recentes na pasta atual (0 = todas).")
+    parser.add_argument("--install-service", action="store_true", help="Instala o monitoramento periódico no systemd (root) com as opções de varredura dadas.")
+    parser.add_argument("--uninstall-service", action="store_true", help="Remove o monitoramento periódico do systemd (root).")
+    parser.add_argument("--every", type=int, default=60, help="Intervalo do serviço em minutos (padrão 60).")
     parser.add_argument("--json-stream", action="store_true", help="Emite eventos JSON (um por linha) no stdout, para a interface.")
     args = parser.parse_args()
 
@@ -1051,13 +1086,30 @@ def main():
     if not 30 <= args.host_timeout <= 86400:
         fatal("--host-timeout deve estar entre 30 e 86400 segundos.")
 
+    if args.install_service or args.uninstall_service:
+        if args.target and not validate_target(args.target):
+            fatal("Alvo inválido.")
+        try:
+            if args.uninstall_service:
+                automation.uninstall_service(log)
+                emit("service", ok=True, action="uninstall")
+            else:
+                automation.install_service(os.path.abspath(__file__), args.every, service_scan_args(args), log)
+                emit("service", ok=True, action="install", every=args.every)
+        except (OSError, ValueError, subprocess.CalledProcessError) as e:
+            fatal(f"Falha ao configurar o serviço: {e}", 1)
+        return
+
     is_root = (os.geteuid() == 0)
     if not is_root:
         log("Sem root: ARP scan, detecção de SO e alguns scripts têm cobertura menor.", "~")
         if args.udp:
             log("--udp exige root; ignorando UDP.", "~")
 
-    previous = load_previous(args.compare) if args.compare else None
+    compare = automation.latest_report() if args.compare == "latest" else args.compare
+    if args.compare == "latest" and not compare:
+        log("Nenhuma varredura anterior para comparar (primeira execução).", "~")
+    previous = load_previous(compare) if compare else None
 
     target = args.target
     if target:
@@ -1142,8 +1194,25 @@ def main():
     an = analysis.analyze_network(hosts, diff)
     for s in an["summary"]:
         log(s, "+")
-    totals = write_report(target, hosts, outdir, diff, an)
-    emit("done", outdir=outdir, hosts=hosts, totals=totals, diff=diff, analysis=an)
+    try:
+        new_keys, baseline = automation.update_inventory(hosts)
+    except OSError as e:
+        log(f"Não consegui atualizar o inventário: {e}", "~")
+        new_keys, baseline = [], True
+    if baseline and hosts:
+        log("Inventário criado: os próximos dispositivos novos vão gerar alerta.", "+")
+    alerts = automation.build_alerts(hosts, diff, new_keys, baseline)
+    for a in alerts:
+        log(f"ALERTA [{a['level']}] {a['text']}", "!")
+    if args.notify and alerts:
+        sent = automation.notify(alerts, f"risco {an['label']} ({an['risk']}/100), {len(alerts)} alerta(s)", log)
+        log(f"Alertas enviados por: {', '.join(sent) or 'nenhum canal configurado'}.", "+")
+    totals = write_report(target, hosts, outdir, diff, an, alerts)
+    if args.keep:
+        removed = automation.prune_results(".", args.keep)
+        if removed:
+            log(f"{removed} varredura(s) antiga(s) removida(s) (--keep {args.keep}).")
+    emit("done", outdir=outdir, hosts=hosts, totals=totals, diff=diff, analysis=an, alerts=alerts)
 
 
 if __name__ == "__main__":

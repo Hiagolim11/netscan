@@ -30,6 +30,10 @@
       {
         "from": "analysis.py",
         "to": "analysis.py"
+      },
+      {
+        "from": "automation.py",
+        "to": "automation.py"
       }
     ],
     "linux": {
