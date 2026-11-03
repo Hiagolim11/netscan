@@ -151,7 +151,8 @@ class TelegramBot(threading.Thread):
         while True:
             integ = automation.load_settings(self.settings_path)["integrations"]
             token, chat = integ.get("telegram_token"), str(integ.get("telegram_chat") or "")
-            if not (token and chat and integ.get("telegram_bot", True)):
+            # sem chat configurado o bot também roda: responde o id a quem mandar /start
+            if not (token and integ.get("telegram_bot", True)):
                 time.sleep(15)
                 continue
             if token != self.token:
@@ -185,7 +186,13 @@ class TelegramBot(threading.Thread):
         msg = upd.get("message") or {}
         chat = str((msg.get("chat") or {}).get("id", ""))
         if chat != allowed_chat:
-            return  # só o dono do netscan conversa com o bot
+            # só o dono do netscan conversa com o bot; a quem não é, mostra o próprio id para
+            # facilitar a configuração (não dá acesso a nada)
+            if (msg.get("text") or "").strip().split("@")[0] == "/start" and chat:
+                self.send(chat, f"🔒 Este bot é privado do netscan.\n\nSeu id de chat é: {chat}\n\n"
+                                "Se este netscan é seu, cole esse número em Preferências → Integrações → "
+                                "Telegram — id do chat e clique em Enviar notificação de teste.")
+            return
         text = (msg.get("text") or "").strip()
         if text.startswith("/"):
             cmd, _, arg = text[1:].partition(" ")

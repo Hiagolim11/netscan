@@ -2,7 +2,7 @@ manifestVersion: 1
 id: hiago-netscan
 category: networking
 name: netscan
-version: "1.4.1"
+version: "1.4.2"
 tagline: Análise automática de segurança da sua rede local
 icon: https://raw.githubusercontent.com/Hiagolim11/umbrel-app-store/master/hiago-netscan/icon.png
 description: >-
@@ -14,8 +14,9 @@ description: >-
 
   Use somente na sua própria rede ou com autorização explícita.
 releaseNotes: >-
-  Falhas do Telegram agora mostram o motivo real e o que fazer (token inválido,
-  chat não encontrado, falta enviar /start ao bot) em vez de só "HTTPError".
+  Telegram: avisa quando o id do chat configurado é o do próprio bot (o número no
+  início do token) e o bot passa a responder /start com o seu id de chat, para
+  facilitar a configuração.
 developer: Hiagolim11
 website: https://github.com/Hiagolim11/netscan
 dependencies: []

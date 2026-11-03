@@ -110,6 +110,15 @@ def build_alerts(hosts, diff=None, new_keys=(), baseline=False):
 
 # ---------------- notificações ----------------
 
+BOT_AS_CHAT_HINT = ("o id do chat é o do próprio bot (o número no início do token) — use o SEU id: "
+                    "mande /start ao seu bot e ele responde com o seu id, ou pergunte ao @userinfobot")
+
+
+def bot_id(token):
+    """O token do Telegram começa com o id do próprio bot: '123456789:AA...'."""
+    return str(token or "").split(":", 1)[0]
+
+
 def telegram_error(e):
     """Motivo legível de uma falha da API do Telegram, sem expor o token (que vai na URL)."""
     if isinstance(e, urllib.error.HTTPError):
@@ -120,6 +129,8 @@ def telegram_error(e):
         low = desc.lower()
         if e.code == 401 or e.code == 404:
             hint = "token inválido — copie de novo o token do @BotFather"
+        elif "bot can't send messages to the bot" in low or "bots can't send messages to bots" in low:
+            hint = BOT_AS_CHAT_HINT
         elif "chat not found" in low:
             hint = "chat não encontrado — confira o id do chat e envie /start ao bot antes"
         elif e.code == 403:
@@ -178,7 +189,9 @@ def notify(alerts, summary_line="", log=None, config=None):
             sent.append("webhook")
         except (OSError, ValueError) as e:
             log(f"Falha ao enviar webhook: {e}", "~")
-    if token and chat:
+    if token and chat and str(chat).strip() == bot_id(token):
+        log(f"Falha ao enviar Telegram: {BOT_AS_CHAT_HINT}", "~")  # erro clássico: nem chama a API
+    elif token and chat:
         try:
             url = f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/sendMessage"
             params = {"chat_id": chat, "text": text[:4000]}

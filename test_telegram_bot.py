@@ -70,8 +70,16 @@ class TestBot(unittest.TestCase):
     def test_ignores_other_chats(self):
         self.msg("/verificar", chat="999")
         self.click("scan", chat="999")
+        self.msg("/pausar", chat="999")
         self.assertEqual(self.scanner.started, [])
         self.assertEqual(self.sent(), [])
+        self.assertFalse(automation.load_settings(self.settings)["schedule"]["paused"])
+
+    def test_start_from_unknown_chat_reveals_only_its_own_id(self):
+        self.msg("/start", chat="555")
+        self.assertIn("Seu id de chat é: 555", self.sent()[-1])
+        self.assertNotIn(CHAT, self.sent()[-1])       # nunca revela o chat autorizado
+        self.assertEqual(self.scanner.started, [])
 
     def test_quick_scan_whole_network(self):
         self.msg("/verificar")

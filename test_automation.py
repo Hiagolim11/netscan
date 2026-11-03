@@ -178,6 +178,17 @@ class TestTelegramErrors(unittest.TestCase):
             self.assertIn(f"HTTP {code}", msg)
             self.assertNotIn("SECRETO", msg)
 
+    def test_bot_id_as_chat_is_caught_without_calling_api(self):
+        logs = []
+        with mock.patch.object(automation, "_post") as post:
+            sent = automation.notify([{"level": "high", "ip": "x", "text": "t"}], log=lambda m, l="*": logs.append(m),
+                                     config={"telegram_token": "123456:SECRETO", "telegram_chat": "123456", "min_level": "low"})
+        post.assert_not_called()
+        self.assertEqual(sent, [])
+        self.assertIn("próprio bot", logs[0])
+        msg = automation.telegram_error(self.err(403, "Forbidden: the bot can't send messages to the bot"))
+        self.assertIn("próprio bot", msg)
+
     def test_notify_reports_reason(self):
         logs = []
         with mock.patch.object(automation, "_post", side_effect=self.err(400, "Bad Request: chat not found")):
