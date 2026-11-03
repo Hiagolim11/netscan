@@ -184,6 +184,8 @@ function renderDevice(h) {
   if (h.mac) meta.push('MAC ' + h.mac);
   if (h.vendor) meta.push(h.vendor);
   if (h.ipv6 && h.ipv6.length) meta.push('IPv6 ' + h.ipv6.join(', '));
+  const hi = h.host_info || {};
+  if (hi['smb-os-discovery'] && !(h.os && h.os.name)) meta.push('SO ' + hi['smb-os-discovery']);
   let html = meta.length ? `<div class="device-meta">${esc(meta.join('  ·  '))}</div>` : '';
 
   // ações do dispositivo
@@ -202,7 +204,7 @@ function renderDevice(h) {
     html += '<div class="ports">';
     for (const p of ports) {
       const ver = [p.product, p.version].filter(Boolean).join(' ');
-      html += `<div class="port"><span class="port-id">${esc(p.port)}/${esc(p.proto)}</span> <span class="port-svc">${esc(p.service || '?')}</span>${p.ipv6 ? ' <span class="port-v6">só IPv6</span>' : ''}${ver ? `<span class="port-ver">${esc(ver)}</span>` : ''}</div>`;
+      html += `<div class="port"><span class="port-id">${esc(p.port)}/${esc(p.proto)}</span> <span class="port-svc">${esc(p.service || '?')}</span>${p.ipv6 ? ' <span class="port-v6">só IPv6</span>' : ''}${ver ? `<span class="port-ver">${esc(ver)}</span>` : ''}${portInfo(p)}</div>`;
     }
     html += '</div>';
   }
@@ -241,9 +243,17 @@ function renderDevice(h) {
   }
   detail.innerHTML = html;
   node.dataset.search = [alias, h.type_label, h.ip, h.hostname, h.vendor, h.mac, h.os && h.os.name,
-    ...ports.map((p) => `${p.port} ${p.service} ${p.product} ${(p.exploits || []).map((x) => `edb-${x.id} ${x.title} ${x.cves.join(' ')}`).join(' ')}`),
+    ...ports.map((p) => `${p.port} ${p.service} ${p.product} ${Object.values(p.scripts || {}).join(' ')} ${(p.exploits || []).map((x) => `edb-${x.id} ${x.title} ${x.cves.join(' ')}`).join(' ')}`),
     ...(h.ipv6 || []), ...vulns.map((v) => `${v.id} ${v.title || ''} ${(v.cves || []).join(' ')}`)].filter(Boolean).join(' ').toLowerCase();
   applyFilter();
+}
+
+// título HTTP, servidor etc. coletados pelas checagens adaptativas
+const INFO_LABEL = { 'http-title': 'título', 'http-server-header': 'servidor', 'ssh-auth-methods': 'login',
+  'rdp-ntlm-info': 'RDP', 'mysql-info': 'MySQL', 'ftp-syst': 'sistema', 'ntp-info': 'NTP', 'rtsp-methods': 'RTSP' };
+function portInfo(p) {
+  const rows = Object.entries(p.scripts || {}).filter(([id]) => INFO_LABEL[id]);
+  return rows.map(([id, out]) => `<span class="port-info"><b>${esc(INFO_LABEL[id])}:</b> ${esc(out)}</span>`).join('');
 }
 
 const CONF_LABEL = { high: 'confiança alta', medium: 'confiança média', low: 'confiança baixa' };

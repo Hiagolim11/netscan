@@ -470,3 +470,5 @@ body { display: flex; flex-direction: column; }
 .chip-conf-high { color: var(--accent); }
 .chip-conf-low { color: var(--sev-medium); }
 .vuln-note { font-size: 12px; color: var(--sev-high); margin-top: 6px; }
+.port-info { display: block; color: var(--ink-faint); font-size: 11px; margin-top: 2px; }
+.port-info b { color: var(--ink-dim); font-weight: 600; }

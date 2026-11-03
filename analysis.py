@@ -178,7 +178,9 @@ def is_random_mac(mac):
 def device_type(h, gateway=None):
     """Tipo provável do aparelho a partir de portas, serviços, fabricante, SO e nome."""
     ports = {int(p["port"]) for p in h.get("ports", []) if str(p.get("port", "")).isdigit()}
-    svcs = " ".join(f"{p.get('service') or ''} {p.get('product') or ''}" for p in h.get("ports", [])).lower()
+    # inclui título HTTP/UPnP etc.: "Hikvision", "Router Login", "Printer" entregam o tipo
+    svcs = " ".join(f"{p.get('service') or ''} {p.get('product') or ''} {' '.join((p.get('scripts') or {}).values())}"
+                    for p in h.get("ports", [])).lower()
     vendor = (h.get("vendor") or "").lower()
     osn = ((h.get("os") or {}).get("name") or "").lower()
     name = (h.get("hostname") or "").lower()

@@ -108,6 +108,50 @@ class TestNetscan(unittest.TestCase):
         self.assertEqual(hosts[1]["ip"], "fe80::5%wlan0")  # só IPv6: vira host, com interface
         self.assertEqual(len(hosts), 2)
 
+    def test_select_scripts(self):
+        sel = netscan.select_scripts
+        web = sel([{"port": "8081", "proto": "tcp", "service": "http"}])
+        self.assertIn("http-title", web)          # casa pelo nome do serviço, não só pela porta
+        self.assertNotIn("smb-protocols", web)    # não roda o que não se aplica
+        self.assertNotIn("http-default-accounts", web)  # senha padrão só com opt-in
+        self.assertIn("http-default-accounts", sel([{"port": "80", "proto": "tcp", "service": "http"}], default_creds=True))
+        tls = sel([{"port": "9443", "proto": "tcp", "service": "http", "tunnel": "ssl"}])
+        self.assertIn("ssl-enum-ciphers", tls)
+        smb = sel([{"port": "445", "proto": "tcp", "service": "microsoft-ds"}], deep=True)
+        self.assertTrue({"smb-protocols", "smb-enum-shares", "default"} <= set(smb))
+        self.assertEqual(sel([])[:2], ["vuln", "vulners"])
+
+    def test_port_spec(self):
+        self.assertEqual(netscan._port_spec([{"port": "80", "proto": "tcp"}, {"port": "22", "proto": "tcp"},
+                                             {"port": "161", "proto": "udp"}]), ("T:22,80,U:161", True))
+
+    def test_new_config_findings(self):
+        cf = netscan.config_finding
+        self.assertEqual(cf("smb-protocols", "dialects:\n  NT LM 0.12 (SMBv1) [dangerous, but default]")[0], "high")
+        self.assertIsNone(cf("smb-protocols", "dialects:\n  2:0:2\n  3:1:1"))
+        self.assertEqual(cf("vnc-info", "Protocol version: 3.8\nSecurity types:\n  None (1)")[0], "high")
+        self.assertIsNone(cf("vnc-info", "Protocol version: 3.8\nSecurity types:\n  VNC Authentication (2)"))
+        self.assertEqual(cf("http-methods", "Supported Methods: GET PUT\n  Potentially risky methods: PUT")[0], "medium")
+        self.assertIsNone(cf("http-methods", "Potentially risky methods: TRACE"))
+        self.assertEqual(cf("http-default-accounts", "[Cisco] at /\n    admin:admin")[0], "critical")
+        self.assertEqual(cf("smb-enum-shares", "\\\\x\\pub:\n  Anonymous access: READ")[0], "medium")
+
+    def test_info_scripts_go_to_port(self):
+        xml = """<nmaprun><host><status state="up"/><ports>
+            <port protocol="tcp" portid="80"><state state="open"/><service name="http"/>
+              <script id="http-title" output="Hikvision Web Login - exploit-free"/></port></ports>
+            <hostscript><script id="smb-os-discovery" output="&#10;  OS: Windows 10 Pro 19045&#10;  Computer name: PC"/></hostscript>
+            </host></nmaprun>"""
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as f:
+            f.write(xml)
+        try:
+            r = netscan.parse_host_scan(f.name, "10.0.0.2")
+        finally:
+            os.unlink(f.name)
+        self.assertEqual(r["vulns"], [])  # "exploit" no título não vira achado
+        self.assertIn("Hikvision", r["ports"][0]["scripts"]["http-title"])
+        self.assertEqual(r["host_info"]["smb-os-discovery"], "Windows 10 Pro 19045")
+
 
 if __name__ == "__main__":
     unittest.main()

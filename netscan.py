@@ -294,16 +294,35 @@ def _safe_name(ip):
     return re.sub(r"[^A-Za-z0-9]", "_", ip)
 
 
+def _port_spec(ports):
+    """Lista de portas abertas -> sintaxe -p do nmap (T:..,U:..)."""
+    tcp = sorted({int(p["port"]) for p in ports if p.get("proto") == "tcp"})
+    udp = sorted({int(p["port"]) for p in ports if p.get("proto") == "udp"})
+    parts = []
+    if tcp:
+        parts.append("T:" + ",".join(map(str, tcp)))
+    if udp:
+        parts.append("U:" + ",".join(map(str, udp)))
+    return ",".join(parts), bool(udp)
+
+
 def scan_host(ip, outdir, fast=False, deep=False, is_root=False,
-              ports=None, udp=False, no_ping=False, timeout=1200, ipv6_addrs=None):
-    """Detecta serviços, SO e (se não fast) vulnerabilidades.
+              ports=None, udp=False, no_ping=False, timeout=1200, ipv6_addrs=None,
+              default_creds=False):
+    """Fase 1: portas, serviços e SO. Fase 2 (se não fast): só nas portas abertas, com os
+    scripts escolhidos para cada serviço encontrado (varredura adaptativa).
     ipv6_addrs: endereços IPv6 do mesmo aparelho, conferidos atrás de portas só-IPv6."""
-    xml_path = os.path.join(outdir, f"host_{_safe_name(ip)}.xml")
-    args = ["-sV", "-T4", "--host-timeout", f"{timeout}s", "-oX", xml_path]
+    base = ["-T4", "--host-timeout", f"{timeout}s"]
     if ":" in ip:
-        args.append("-6")
+        base.append("-6")
     if no_ping:
-        args.append("-Pn")
+        base.append("-Pn")
+    if JSON_STREAM:
+        base += ["--stats-every", "5s"]
+    progress = lambda phase, pct, eta: emit("host_progress", ip=ip, phase=phase, pct=pct, eta=eta)
+
+    xml1 = os.path.join(outdir, f"host_{_safe_name(ip)}.xml")
+    args = ["-sV", "-oX", xml1] + base
     if is_root:
         args.append("-O")  # detecção de SO exige root
     if udp and is_root:
@@ -316,22 +335,77 @@ def scan_host(ip, outdir, fast=False, deep=False, is_root=False,
         args += ["-p", ports]
     elif deep:
         args.append("-p-")  # todas as 65535 portas
-    if not fast:
-        scripts = "vuln,vulners," + ",".join(CONFIG_SCRIPTS)
-        if deep:
-            scripts += ",default,http-enum,http-headers,ssh2-enum-algos"
-        args += ["--script", scripts, "--script-args", "mincvss=0.0"]
-    args.append(ip)
-    if JSON_STREAM:
-        args += ["--stats-every", "5s"]
-    progress = lambda phase, pct, eta: emit("host_progress", ip=ip, phase=phase, pct=pct, eta=eta)
-    run_nmap(args, f"scan {ip}", progress)
-    result = parse_host_scan(xml_path, ip)
+    run_nmap(args + [ip], f"serviços {ip}", progress)
+    result = parse_host_scan(xml1, ip)
+
+    if not fast and result["ports"] and not STOPPING.is_set():
+        scripts = select_scripts(result["ports"], deep, default_creds)
+        spec, has_udp = _port_spec(result["ports"])
+        emit("host_progress", ip=ip, phase=f"{len(scripts)} checagens", pct=0, eta=None)
+        log(f"{ip}: checagens escolhidas pelos serviços: {', '.join(scripts)}", "~")
+        xml2 = os.path.join(outdir, f"host_{_safe_name(ip)}_scripts.xml")
+        # sem limite, scripts como http-slowloris-check seguram um host por muitos minutos
+        args = ["-sV", "-p", spec, "-oX", xml2, "--script", ",".join(scripts),
+                "--script-args", "mincvss=0.0", "--script-timeout", "300s" if deep else "120s"] + base
+        if has_udp and is_root:
+            args += ["-sS", "-sU"]
+        run_nmap(args + [ip], f"checagens {ip}", progress)
+        r2 = parse_host_scan(xml2, ip)
+        if r2["ports"]:  # fase 2 incompleta: fica com o resultado da fase 1
+            r2["os"] = r2["os"] or result["os"]
+            result = r2
+    if not result["os"] and result["host_info"].get("smb-os-discovery"):
+        result["os"] = {"name": result["host_info"]["smb-os-discovery"], "accuracy": None}
+
     if ipv6_addrs and not STOPPING.is_set():
         check_ipv6_ports(result, ip, ipv6_addrs, outdir, ports, deep, timeout)
     for p in result["ports"]:
         p["exploits"] = find_exploits(p.get("product"), p.get("version"))
     return result
+
+
+# scripts por serviço: (portas, trecho do nome do serviço, scripts)
+SERVICE_SCRIPTS = [
+    ({80, 443, 8000, 8008, 8080, 8443, 8888}, "http", ["http-title", "http-server-header", "http-methods"]),
+    ({443, 8443, 993, 995, 465, 636, 3389}, "ssl", ["ssl-enum-ciphers", "ssl-cert"]),
+    ({139, 445}, "microsoft-ds|netbios-ssn", ["smb-os-discovery", "smb-protocols", "smb-security-mode",
+                                              "smb2-security-mode", "smb-enum-shares"]),
+    ({22}, "ssh", ["ssh2-enum-algos", "ssh-auth-methods", "sshv1"]),
+    ({21}, "ftp", ["ftp-anon", "ftp-syst"]),
+    ({3389}, "ms-wbt-server|rdp", ["rdp-enum-encryption", "rdp-ntlm-info"]),
+    ({161}, "snmp", ["snmp-info", "snmp-sysdescr"]),
+    ({5900, 5901, 5902}, "vnc", ["vnc-info"]),
+    ({6379}, "redis", ["redis-info"]),
+    ({27017}, "mongodb", ["mongodb-info"]),
+    ({11211}, "memcache", ["memcached-info"]),
+    ({3306}, "mysql", ["mysql-info"]),
+    ({1900}, "upnp", ["upnp-info"]),
+    ({554}, "rtsp", ["rtsp-methods"]),
+    ({123}, "ntp", ["ntp-info"]),
+]
+# testes de senha padrão/vazia: só com --default-creds (fazem tentativas de login)
+CRED_SCRIPTS = [
+    ({80, 443, 8000, 8080, 8443, 8888}, "http", ["http-default-accounts"]),
+    ({3306}, "mysql", ["mysql-empty-password"]),
+    ({1433}, "ms-sql", ["ms-sql-empty-password"]),
+]
+
+
+def select_scripts(ports, deep=False, default_creds=False):
+    """Escolhe as checagens a partir dos serviços realmente abertos."""
+    chosen = ["vuln", "vulners"]
+    table = SERVICE_SCRIPTS + (CRED_SCRIPTS if default_creds else [])
+    for p in ports:
+        num = int(p["port"]) if str(p.get("port", "")).isdigit() else -1
+        name = (p.get("service") or "").lower()
+        if p.get("tunnel") == "ssl":
+            name += " ssl"
+        for nums, pat, scripts in table:
+            if num in nums or (name and re.search(pat, name)):
+                chosen += [x for x in scripts if x not in chosen]
+    if deep:
+        chosen.append("default")
+    return chosen
 
 
 def check_ipv6_ports(result, ip, ipv6_addrs, outdir, ports, deep, timeout):
@@ -448,7 +522,7 @@ def _severity_counts(vulns):
 
 
 def parse_host_scan(xml_path, ip):
-    result = {"ip": ip, "ports": [], "vulns": [], "os": None, "severity": {}}
+    result = {"ip": ip, "ports": [], "vulns": [], "os": None, "severity": {}, "host_info": {}}
     if not os.path.exists(xml_path):
         return result
     try:
@@ -466,6 +540,7 @@ def parse_host_scan(xml_path, ip):
         result["os"] = {"name": osmatch.get("name"), "accuracy": osmatch.get("accuracy")}
 
     def add_vuln(port, script):
+        """Registra o achado; devolve False se o script for só informativo."""
         out = (script.get("output") or "").strip()
         sid = script.get("id")
         cfg = config_finding(sid, out)
@@ -473,14 +548,15 @@ def parse_host_scan(xml_path, ip):
             sev, title = cfg
             result["vulns"].append({"port": port, "id": sid, "title": title, "output": out,
                                     "cves": [], "cvss": None, "severity": sev})
-            return
-        if sid in CONFIG_SCRIPTS or not _looks_vulnerable(sid, out):
-            return
+            return True
+        if sid in INFO_SCRIPTS or not _looks_vulnerable(sid, out):
+            return False
         cves, cvss, sev = extract_vuln_meta(out)
         result["vulns"].append({
             "port": port, "id": sid, "output": out,
             "cves": cves, "cvss": cvss, "severity": sev,
         })
+        return True
 
     for port in host.findall("ports/port"):
         state = port.find("state")
@@ -503,10 +579,15 @@ def parse_host_scan(xml_path, ip):
                                     "output": f"{p['service']} em {p['port']}/{p['proto']}",
                                     "cves": [], "cvss": None, "severity": sev})
         for script in port.findall("script"):
-            add_vuln(port.get("portid"), script)
+            if not add_vuln(port.get("portid"), script) and script.get("output"):
+                p.setdefault("scripts", {})[script.get("id")] = _short(script.get("output"))
 
     for script in host.findall("hostscript/script"):
-        add_vuln("host", script)
+        out = script.get("output") or ""
+        if add_vuln("host", script) or not out:
+            continue
+        os_line = re.search(r"OS: ([^\n]+)", out) if script.get("id") == "smb-os-discovery" else None
+        result["host_info"][script.get("id")] = os_line.group(1).strip() if os_line else _short(out)
 
     # ordena por severidade (mais grave primeiro)
     products = {p["port"]: " ".join(filter(None, [p.get("product"), p.get("version")])) for p in result["ports"]}
@@ -516,6 +597,12 @@ def parse_host_scan(xml_path, ip):
     return result
 
 
+def _short(text, limit=160):
+    """Saída de script informativo resumida a poucas linhas úteis."""
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    return " · ".join(lines)[:limit]
+
+
 def _sort_and_count(result):
     """Ordena por severidade (mais grave primeiro) e recalcula a contagem."""
     result["vulns"].sort(key=lambda v: (SEVERITY_ORDER.index(v.get("severity", "info")),
@@ -523,10 +610,13 @@ def _sort_and_count(result):
     result["severity"] = _severity_counts(result["vulns"])
 
 
-# checagens de configuração (só leitura, sem testar senhas)
-CONFIG_SCRIPTS = ["ftp-anon", "smb-security-mode", "smb2-security-mode",
-                  "ssl-enum-ciphers", "ssl-cert", "snmp-info"]
-
+# scripts que só trazem informação: nunca viram achado por palavra-chave solta
+INFO_SCRIPTS = {"http-title", "http-server-header", "smb-os-discovery", "ftp-syst", "ssh2-enum-algos",
+                "ssh-auth-methods", "rdp-ntlm-info", "mysql-info", "rtsp-methods", "ntp-info",
+                "ssl-enum-ciphers", "ssl-cert", "smb-security-mode", "smb2-security-mode", "smb-protocols",
+                "smb-enum-shares", "sshv1", "vnc-info", "redis-info", "mongodb-info", "memcached-info",
+                "rdp-enum-encryption", "http-methods", "upnp-info", "snmp-info", "snmp-sysdescr", "ftp-anon",
+                "http-default-accounts", "mysql-empty-password", "ms-sql-empty-password"}
 
 def config_finding(sid, output):
     """Traduz a saída das checagens de configuração em (severidade, título) ou None."""
@@ -548,8 +638,37 @@ def config_finding(sid, output):
         m = re.search(r"not valid after:\s*(\d{4}-\d{2}-\d{2})", low)
         if m and m.group(1) < datetime.now().strftime("%Y-%m-%d"):
             return "low", f"Certificado TLS expirado em {m.group(1)}"
-    if sid == "snmp-info" and low:
+    if sid in ("snmp-info", "snmp-sysdescr") and low:
         return "medium", "SNMP responde com a community padrão"
+    if sid == "smb-protocols" and "smbv1" in low:
+        return "high", "SMBv1 habilitado (alvo do WannaCry/EternalBlue)"
+    if sid == "smb-enum-shares":
+        if "anonymous access: read/write" in low:
+            return "high", "Compartilhamento SMB com escrita sem senha"
+        if "anonymous access: read" in low:
+            return "medium", "Compartilhamento SMB legível sem senha"
+    if sid == "sshv1" and "supports sshv1" in low:
+        return "high", "Servidor aceita SSHv1 (quebrado)"
+    if sid == "vnc-info" and re.search(r"security types:[^\n]*\n(?:\s+.*\n)*?\s+none \(1\)", low + "\n"):
+        return "high", "VNC sem senha"
+    if sid == "redis-info" and "version" in low and "auth" not in low:
+        return "high", "Redis acessível sem autenticação"
+    if sid == "mongodb-info" and "version" in low and not re.search(r"auth|unauthorized|requires", low):
+        return "high", "MongoDB acessível sem autenticação"
+    if sid == "memcached-info" and ("uptime" in low or "process id" in low):
+        return "medium", "Memcached acessível sem autenticação"
+    if sid == "rdp-enum-encryption" and "native rdp: success" in low:
+        return "medium", "RDP aceita conexão sem NLA"
+    if sid == "http-methods":
+        m = re.search(r"potentially risky methods:([^\n]*)", low)
+        if m and re.search(r"\b(put|delete)\b", m.group(1)):
+            return "medium", "Métodos HTTP perigosos habilitados (PUT/DELETE)"
+    if sid == "upnp-info" and low:
+        return "low", "UPnP exposto (pode abrir portas no roteador sozinho)"
+    if sid == "http-default-accounts" and re.search(r"\[[^\]]+\] at", low):
+        return "critical", "Senha padrão de fábrica aceita"
+    if sid in ("mysql-empty-password", "ms-sql-empty-password") and "empty password" in low and "has" in low:
+        return "critical", "Banco de dados aceita senha vazia"
     return None
 
 
@@ -579,6 +698,20 @@ FIXES = [
     ("ssl-ccs-injection", "Atualize o OpenSSL."),
     ("ssl-enum-ciphers", "Desative TLS 1.0/1.1 e cifras fracas (RC4, 3DES, NULL, EXPORT); prefira TLS 1.2+ com AEAD."),
     ("ssl-cert", "Renove o certificado e automatize a renovação (ex.: certbot)."),
+    ("smb-protocols", "Desative o SMBv1 (Windows: Set-SmbServerConfiguration -EnableSMB1Protocol $false; Samba: server min protocol = SMB2)."),
+    ("smb-enum-shares", "Exija autenticação nos compartilhamentos e remova o acesso de convidado/anônimo."),
+    ("sshv1", "Desative o protocolo 1 no sshd (Protocol 2) ou atualize o servidor SSH."),
+    ("vnc-info", "Defina senha forte no VNC e restrinja o acesso (túnel SSH/VPN)."),
+    ("redis-info", "Ative requirepass/ACL no Redis e escute só em 127.0.0.1 (bind)."),
+    ("mongodb-info", "Ative authorization no MongoDB e escute só na rede interna (bindIp)."),
+    ("memcached-info", "Escute só em 127.0.0.1 e desative UDP (-U 0)."),
+    ("rdp-enum-encryption", "Exija NLA (Autenticação no Nível da Rede) nas configurações de Área de Trabalho Remota."),
+    ("http-methods", "Desative PUT/DELETE no servidor web se não forem usados."),
+    ("upnp-info", "Desative o UPnP no roteador se não precisar dele."),
+    ("http-default-accounts", "Troque já a senha padrão de fábrica por uma senha forte e única."),
+    ("mysql-empty-password", "Defina senha para todas as contas do banco e restrinja o acesso pela rede."),
+    ("ms-sql-empty-password", "Defina senha para a conta 'sa' e restrinja o acesso pela rede."),
+    ("snmp-sysdescr", "Troque a community padrão, use SNMPv3 ou restrinja o SNMP por ACL/firewall."),
     ("snmp-info", "Troque a community padrão, use SNMPv3 ou restrinja o SNMP por ACL/firewall."),
     ("http-slowloris", "Limite conexões e timeouts (Apache: mod_reqtimeout) ou coloque um proxy reverso na frente."),
     ("http-csrf", "Use tokens anti-CSRF e cookies SameSite."),
@@ -890,6 +1023,7 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=1, help="Hosts analisados em paralelo (1-16, padrão 1).")
     parser.add_argument("--host-timeout", type=int, default=1200, help="Tempo máximo por host, em segundos (padrão 1200).")
     parser.add_argument("-6", "--ipv6", action="store_true", help="Também descobre vizinhos IPv6 (multicast) e procura portas abertas só via IPv6.")
+    parser.add_argument("--default-creds", action="store_true", help="Testa senhas padrão de fábrica/vazias (faz tentativas de login; desligado por padrão).")
     parser.add_argument("--offline", action="store_true", help="Não baixa CISA KEV/EPSS (usa só o cache local).")
     parser.add_argument("--compare", help="relatorio.json de uma varredura anterior para mostrar o que mudou.")
     parser.add_argument("--json-stream", action="store_true", help="Emite eventos JSON (um por linha) no stdout, para a interface.")
@@ -974,8 +1108,9 @@ def main():
             scan = scan_host(h["ip"], outdir, fast=args.fast, deep=args.deep, is_root=is_root,
                              ports=args.ports, udp=args.udp, no_ping=args.no_ping,
                              timeout=args.host_timeout,
-                             ipv6_addrs=h.get("ipv6") if args.ipv6 else None)
-            for k in ("ports", "vulns", "os", "severity"):
+                             ipv6_addrs=h.get("ipv6") if args.ipv6 else None,
+                             default_creds=args.default_creds)
+            for k in ("ports", "vulns", "os", "severity", "host_info"):
                 h[k] = scan[k]
             try:
                 analysis.analyze_host(h, intel, gateway)
