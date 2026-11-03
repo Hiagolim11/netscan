@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
   <title>netscan</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -23,8 +24,46 @@
       <label class="field">
         <span class="field-label">Alvo</span>
         <input id="target" type="text" placeholder="auto (sub-rede local)" spellcheck="false" />
-        <span class="field-hint">CIDR ou IP. Vazio = detecta sua sub-rede.</span>
+        <span class="field-hint">CIDR, IP ou vários separados por vírgula. Vazio = suas sub-redes.</span>
       </label>
+
+      <details class="adv">
+        <summary>Opções avançadas</summary>
+        <label class="field">
+          <span class="field-label">Portas</span>
+          <input id="ports" type="text" placeholder="padrão do nmap" spellcheck="false" />
+          <span class="field-hint">Ex.: 22,80,443 ou 1-1024.</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Excluir</span>
+          <input id="exclude" type="text" placeholder="ex.: 192.168.0.1" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span class="field-label">Hosts em paralelo</span>
+          <input id="workers" type="number" min="1" max="16" value="2" />
+        </label>
+        <label class="check">
+          <input id="udp" type="checkbox" />
+          <span>UDP — inclui portas UDP comuns (DNS, SNMP, NTP…; exige sudo)</span>
+        </label>
+        <label class="check">
+          <input id="noPing" type="checkbox" />
+          <span>Sem ping (-Pn) — para hosts que bloqueiam ICMP/ARP (lento)</span>
+        </label>
+        <label class="check">
+          <input id="ipv6" type="checkbox" />
+          <span>IPv6 — acha vizinhos IPv6 e portas abertas só via IPv6 (alvo vazio)</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Comparar com</span>
+          <select id="compare"><option value="latest">a varredura anterior</option><option value="">não comparar</option></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Repetir a cada (min)</span>
+          <input id="repeat" type="number" min="0" max="1440" value="0" />
+          <span class="field-hint">0 = uma vez só. Avisa quando surge dispositivo ou vulnerabilidade nova.</span>
+        </label>
+      </details>
 
       <label class="check">
         <input id="fast" type="checkbox" />
@@ -47,6 +86,9 @@
       </div>
 
       <div class="legal">Use somente em redes próprias ou com autorização explícita.</div>
+
+      <h2 class="panel-title log-title">Histórico</h2>
+      <ol id="history" class="history"><li class="history-empty">Nenhuma varredura salva.</li></ol>
 
       <h2 class="panel-title log-title">Registro</h2>
       <div id="log" class="log" aria-live="polite"></div>
@@ -75,11 +117,18 @@
         <p class="empty-sub">Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.</p>
       </div>
 
+      <div id="toolbar" class="toolbar" hidden>
+        <input id="filter" type="search" placeholder="Filtrar por IP, nome, serviço, CVE…" spellcheck="false" />
+        <label class="check"><input id="onlyVuln" type="checkbox" /><span>Só com vulnerabilidades</span></label>
+        <button id="expandAll" class="btn btn-ghost">Expandir/recolher</button>
+      </div>
+
       <ol id="devices" class="devices" hidden></ol>
 
       <footer id="reportBar" class="report" hidden>
         <span id="reportText"></span>
-        <button id="openReport" class="btn btn-ghost">Abrir pasta do relatório</button>
+        <button id="openHtml" class="btn btn-ghost">Abrir relatório HTML</button>
+        <button id="openReport" class="btn btn-ghost">Abrir pasta</button>
       </footer>
     </section>
   </main>

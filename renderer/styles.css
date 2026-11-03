@@ -80,7 +80,7 @@ html, body {
 
 .field { display: block; margin-bottom: 18px; }
 .field-label { display: block; font-size: 14px; margin-bottom: 6px; }
-.field input[type="text"] {
+.field input[type="text"], .field input[type="number"], .field select, .toolbar input[type="search"], .alias-input {
   width: 100%;
   background: var(--surface);
   color: var(--ink);
@@ -229,6 +229,7 @@ html, body {
   padding: 10px 14px;
   margin-bottom: 8px;
 }
+.vuln-cvewrap { margin-top: 6px; }
 .vuln-id { font-family: var(--mono); font-size: 13px; color: var(--danger); font-weight: 600; }
 .vuln-out { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; margin-top: 6px; max-height: 180px; overflow-y: auto; }
 .no-vuln { color: var(--ink-faint); font-size: 13px; margin-top: 12px; }
@@ -337,3 +338,49 @@ html, body {
   .log { max-height: 160px; }
   .stat-num { font-size: 44px; }
 }
+
+/* ---- Opções avançadas / filtro / ações ---- */
+.adv { margin: 4px 0 14px; }
+.adv summary { cursor: pointer; font-size: 14px; color: var(--ink-dim); margin-bottom: 14px; }
+.adv summary:hover { color: var(--ink); }
+
+.toolbar { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.toolbar input[type="search"] { flex: 1; min-width: 220px; width: auto; }
+.toolbar .check { margin: 0; }
+
+.dev-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dev-actions .btn { font-size: 13px; padding: 5px 10px; border: 1px solid var(--surface); }
+
+.diff-tag { margin-left: 10px; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: var(--r); text-transform: uppercase; }
+.diff-new { background: var(--accent); color: var(--accent-ink); }
+.diff-chg { background: var(--surface); color: var(--ink-dim); }
+.diff-bad { background: var(--danger); color: var(--ground); }
+
+/* ---- Progresso / exploits ---- */
+.device-prog { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.badge-expl .badge-num { color: var(--sev-high); }
+.expls { margin-top: 14px; }
+.expls-title { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
+.expl { font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--surface); }
+.expl-id { font-family: var(--mono); font-size: 12px; padding: 0 6px; }
+.expl-type { color: var(--ink-faint); font-size: 12px; }
+
+/* ---- Histórico / apelidos ---- */
+.alias-input { width: 100%; margin-bottom: 10px; font-family: var(--sans) !important; }
+.history { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.history-empty { font-size: 12px; color: var(--ink-faint); }
+.history-item {
+  display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  border-bottom: 1px solid var(--surface); padding: 6px 4px; cursor: pointer; color: var(--ink);
+  font-family: var(--sans);
+}
+.history-item:hover { background: var(--surface); }
+.history-item:focus-visible { outline: 2px solid var(--accent); }
+.history-ts { display: block; font-family: var(--mono); font-size: 12px; }
+.history-meta { display: block; font-size: 11px; color: var(--ink-dim); }
+.history-meta b { color: var(--danger); }
+
+/* ---- IPv6 / correção ---- */
+.port-v6 { color: var(--sev-medium); font-size: 11px; font-weight: 700; }
+.vuln-fix { font-size: 13px; color: var(--ink); margin-top: 6px; }
+.vuln-fix b { color: var(--accent); font-weight: 600; }

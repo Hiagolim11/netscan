@@ -3,10 +3,15 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const net = require('net');
 const readline = require('readline');
 
 let win = null;
 let currentProc = null;
+// senha do sudo guardada só em memória e só enquanto o monitoramento estiver ativo
+let monitorPassword = null;
+const REPORT_DIR_RE = /^resultados_[\w-]+$/;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -55,7 +60,45 @@ function buildArgs(opts) {
   if (opts && opts.target) args.push('-t', String(opts.target));
   if (opts && opts.fast) args.push('--fast');
   if (opts && opts.deep) args.push('--deep');
+  // os valores são validados pelo netscan.py; aqui só repassamos como argumentos (sem shell)
+  if (opts && opts.ports) args.push('-p', String(opts.ports));
+  if (opts && opts.exclude) args.push('-x', String(opts.exclude));
+  if (opts && opts.udp) args.push('--udp');
+  if (opts && opts.noPing) args.push('--no-ping');
+  if (opts && opts.ipv6) args.push('--ipv6');
+  if (opts && opts.workers) args.push('-w', String(parseInt(opts.workers, 10) || 1));
+  // re-scan de um host vai para outra pasta: não vira a "última varredura" da comparação
+  if (opts && opts.single) {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
+    args.push('-o', path.join(workDir(), `rescan_${stamp}`));
+  }
+  if (opts && opts.compare) {
+    const prev = opts.compare === 'latest' ? latestReport() : reportFile(opts.compare);
+    if (prev) args.push('--compare', prev);
+  }
   return args;
+}
+
+// caminho do relatorio.json de uma pasta do histórico (só nomes resultados_*, sem ../)
+function reportFile(name) {
+  if (!REPORT_DIR_RE.test(String(name))) return null;
+  const f = path.join(workDir(), name, 'relatorio.json');
+  return fs.existsSync(f) ? f : null;
+}
+
+// relatorio.json da varredura mais recente em workDir (nomes resultados_<data> ordenam por data)
+function latestReport() {
+  try {
+    const dirs = fs.readdirSync(workDir())
+      .filter((d) => d.startsWith('resultados_'))
+      .sort()
+      .reverse();
+    for (const d of dirs) {
+      const f = path.join(workDir(), d, 'relatorio.json');
+      if (fs.existsSync(f)) return f;
+    }
+  } catch (_) {}
+  return null;
 }
 
 // true = sudo sem senha disponível; false = exige senha; 'nosudo' = sudo ausente
@@ -179,6 +222,7 @@ ipcMain.handle('scan:start', async (_evt, opts) => {
       return { ok: false, error: 'sudo não encontrado. Desmarque a opção sudo ou instale o sudo.' };
     }
     if (s === false) {
+      if (opts.repeat && monitorPassword) return startProcess(opts, monitorPassword);
       return { ok: false, needPassword: true }; // renderer abre o diálogo de senha
     }
     // s === true: sudo sem senha
@@ -192,13 +236,55 @@ ipcMain.handle('scan:start-sudo', async (_evt, opts, password) => {
   if (currentProc) return { ok: false, error: 'Já existe uma varredura em andamento.' };
   const v = await validateSudoPassword(password || '');
   if (!v.ok) return { ok: false, badPassword: true, error: v.error || 'senha incorreta' };
+  if (opts && opts.repeat) monitorPassword = password;
   // passa a senha direto ao sudo do scan (-S), sem depender do cache de credenciais
   return startProcess(opts, password || '');
 });
 
 ipcMain.handle('scan:stop', () => ({ ok: killScan() }));
 
+ipcMain.handle('monitor:stop', () => { monitorPassword = null; return { ok: true }; });
+
+ipcMain.handle('history:list', () => {
+  try {
+    return fs.readdirSync(workDir())
+      .filter((d) => REPORT_DIR_RE.test(d) && reportFile(d))
+      .sort().reverse().slice(0, 30)
+      .map((name) => {
+        try {
+          const r = JSON.parse(fs.readFileSync(reportFile(name), 'utf8'));
+          return { name, timestamp: r.timestamp, target: r.target, hosts: (r.hosts || []).length, totals: r.totals || {} };
+        } catch (_) { return null; }
+      })
+      .filter(Boolean);
+  } catch (_) { return []; }
+});
+
+ipcMain.handle('history:load', (_evt, name) => {
+  const f = reportFile(name);
+  if (!f) return { ok: false, error: 'Relatório não encontrado.' };
+  try {
+    return { ok: true, report: JSON.parse(fs.readFileSync(f, 'utf8')), outdir: path.dirname(f) };
+  } catch (e) { return { ok: false, error: String(e.message || e) }; }
+});
+
 ipcMain.handle('open:path', (_evt, p) => {
   if (p) shell.openPath(p);
+  return { ok: true };
+});
+
+// abre a página do exploit no Exploit-DB (só aceita o ID numérico)
+ipcMain.handle('open:edb', (_evt, id) => {
+  if (!/^\d{1,7}$/.test(String(id))) return { ok: false };
+  shell.openExternal(`https://www.exploit-db.com/exploits/${id}`);
+  return { ok: true };
+});
+
+// abre http(s)://ip:porta no navegador; a URL é montada aqui para não aceitar URLs arbitrárias
+ipcMain.handle('open:web', (_evt, ip, port, tls) => {
+  const n = parseInt(port, 10);
+  if (!net.isIP(String(ip)) || !(n > 0 && n < 65536)) return { ok: false };
+  const host = net.isIPv6(ip) ? `[${ip}]` : ip;
+  shell.openExternal(`${tls ? 'https' : 'http'}://${host}:${n}/`);
   return { ok: true };
 });
