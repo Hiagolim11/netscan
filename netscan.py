@@ -128,27 +128,45 @@ def split_targets(target):
     return [t for t in re.split(r"[\s,]+", target or "") if t]
 
 
+def is_physical_iface(name):
+    """Placa de rede de verdade (Ethernet/Wi-Fi). Interfaces virtuais (docker, bridges, VPN,
+    VMs como as do Umbrel) não têm o link "device" no sysfs."""
+    return os.path.exists(f"/sys/class/net/{name}/device")
+
+
+def default_route_ifaces(family="-4"):
+    try:
+        out = subprocess.check_output(["ip", family, "route", "show", "default"], text=True)
+    except Exception:
+        return set()
+    return set(re.findall(r"\bdev (\S+)", out))
+
+
 def detect_local_subnets():
-    """Retorna sub-redes IPv4 privadas conectadas, exceto loopback/docker /32."""
+    """Sub-redes IPv4 privadas das redes reais do aparelho: a da rota padrão e as de placas
+    físicas. Ignora redes internas de containers e VMs (docker, br-*, dind0, umbrel-vm, VPNs)."""
     try:
         out = subprocess.check_output(["ip", "-4", "-o", "addr", "show"], text=True)
     except Exception as e:
         log(f"Não consegui ler interfaces: {e}", "!")
         return []
+    real = default_route_ifaces()
     subnets = []
     for line in out.splitlines():
+        parts = line.split()
         m = re.search(r"inet (\d+\.\d+\.\d+\.\d+/\d+)", line)
-        if not m:
+        if not m or len(parts) < 2:
             continue
+        iface = parts[1].split("@")[0]
         try:
             net = ipaddress.ip_network(m.group(1), strict=False)
         except ValueError:
             continue
-        if net.is_loopback or net.prefixlen == 32:
+        if net.is_loopback or net.prefixlen >= 31 or not net.is_private:
             continue
-        if "docker" in line or re.search(r"\b(br-|veth)", line):
+        if iface not in real and not is_physical_iface(iface):
             continue
-        if net.is_private:
+        if str(net) not in subnets:
             subnets.append(str(net))
     return subnets
 
@@ -246,7 +264,7 @@ def ipv6_ifaces():
         if len(parts) < 2:
             continue
         name = parts[1].split("@")[0]
-        if re.match(r"^(lo|docker|br-|veth|tailscale|tun|wg|virbr)", name) or name in names:
+        if name in names or not (is_physical_iface(name) or name in default_route_ifaces("-6")):
             continue
         names.append(name)
     return names

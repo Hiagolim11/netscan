@@ -32,6 +32,7 @@ comando, ou instalado num servidor (Docker/**Umbrel**) e acessado de qualquer lu
 - [Usando a linha de comando](#usando-a-linha-de-comando)
 - [Monitoramento em segundo plano](#monitoramento-em-segundo-plano)
 - [Notificações (celular, Discord, Telegram)](#notificações)
+- [Bot do Telegram](#bot-do-telegram)
 - [Análise automática em detalhe](#análise-automática-em-detalhe)
 - [O que é verificado](#o-que-é-verificado)
 - [Relatórios gerados](#relatórios-gerados)
@@ -56,6 +57,7 @@ comando, ou instalado num servidor (Docker/**Umbrel**) e acessado de qualquer lu
 | 🏷️ **Tipo de aparelho** | Classifica roteador, câmera, impressora, NAS, TV, IoT, celular, PC Windows/Linux/Mac — com regras de risco por tipo. |
 | 🛠️ **Como corrigir** | Cada achado vem com a correção recomendada, em linguagem direta. |
 | 🔔 **Alertas** | Aparelho desconhecido, porta sensível nova, falha grave nova, certificado vencendo — por notificação, webhook ou Telegram. |
+| 🤖 **Bot do Telegram** | Botões nos alertas (verificar agora, resumo, relatório, confiar) e comandos como `/verificar 192.168.0.10`, `/status` e `/pausar`. |
 | ⏱️ **Roda sozinho** | Varredura agendada no servidor (Docker/Umbrel) ou pelo **systemd** no desktop, mesmo com o app fechado. |
 | 🖥️ **Acesso remoto** | Instale num servidor da sua rede e use a mesma interface pelo navegador, com login por senha. |
 | ⚙️ **Preferências** | Tudo configurável numa janela só — varredura, agendamento e integrações (webhook/Telegram, com botão de teste). |
@@ -94,7 +96,8 @@ flowchart LR
     F --> G[Relatórios e alertas<br/>TXT · HTML · CSV · JSON · PDF]
 ```
 
-1. **Descoberta** — `nmap -sn -PR` em todas as sub-redes privadas conectadas (ou no alvo informado).
+1. **Descoberta** — `nmap -sn -PR` nas sub-redes reais do aparelho (a da rota padrão e as de placas
+   de rede físicas — redes internas de Docker, VMs e VPNs são ignoradas) ou no alvo informado.
    Com IPv6 ligado, envia ICMPv6 para `ff02::1` e associa cada endereço IPv6 ao aparelho IPv4
    de mesmo MAC.
 2. **Fase 1** — para cada aparelho (em paralelo, se configurado): portas abertas, versão dos
@@ -140,7 +143,7 @@ git clone https://github.com/Hiagolim11/netscan.git
 cd netscan
 npm install
 npm run dist                                   # gera dist/netscan-<versão>.deb e .AppImage
-sudo apt install ./dist/netscan-1.3.0.deb      # o .deb já declara nmap e python3 como dependências
+sudo apt install ./dist/netscan-1.4.0.deb      # o .deb já declara nmap e python3 como dependências
 ```
 
 Depois é só abrir **netscan** pelo menu de aplicativos.
@@ -154,8 +157,8 @@ git pull && npm install && npm run dist && sudo apt install ./dist/netscan-<nova
 ### AppImage
 
 ```bash
-chmod +x dist/netscan-1.3.0.AppImage
-./dist/netscan-1.3.0.AppImage
+chmod +x dist/netscan-1.4.0.AppImage
+./dist/netscan-1.4.0.AppImage
 ```
 
 ### A partir do código-fonte
@@ -412,6 +415,43 @@ ninguém de intruso.
 
 ---
 
+## Bot do Telegram
+
+Na versão servidor (Docker/Umbrel), o Telegram vira um controle remoto: além de receber os
+alertas, você conversa com o bot.
+
+**Configurar:** crie um bot com o [@BotFather](https://t.me/BotFather), envie `/start` a ele e
+preencha o token e o id do chat em *Preferências → Integrações* (com **Bot interativo** marcado).
+Pronto: o menu de comandos aparece sozinho no Telegram.
+
+**Botões nos alertas:** 🔍 Verificar agora · 📊 Resumo · ✅ Confiar em *IP* (nos alertas de
+aparelho desconhecido — marca como confiável direto do celular).
+
+| Comando | O que faz |
+|---|---|
+| `/verificar` | Varredura rápida da rede (alvo das Preferências) e resumo quando terminar |
+| `/verificar 192.168.0.10` | Varredura de um aparelho, faixa ou CIDR — responde com portas, achados e correções |
+| `/verificar_completa [alvo]` | O mesmo, com as checagens de vulnerabilidade |
+| `/status` | Se há varredura em andamento, a próxima agendada e a última feita |
+| `/ultimo` | Risco da rede, alertas e "corrija primeiro" da última varredura |
+| `/aparelhos` | Todos os aparelhos com tipo e risco, mais arriscados primeiro |
+| `/relatorio` | Envia o relatório da última varredura como arquivo |
+| `/pausar` · `/retomar` | Pausa e retoma a varredura agendada |
+| `/ajuda` | Lista os comandos, com botões |
+
+**Como funciona e segurança:**
+- O servidor busca as mensagens novas no Telegram (*long polling*). Não precisa de porta aberta
+  nem de endereço público, então funciona atrás do roteador.
+- O bot **só atende o chat configurado**; mensagens de qualquer outra pessoa são ignoradas.
+- O alvo de `/verificar` passa pela mesma validação da interface.
+- A varredura de um IP só não entra no histórico nem vira base de comparação da rede inteira.
+- Só uma varredura por vez: se já houver uma em andamento, o bot avisa.
+
+> O bot roda no servidor. No app desktop e no serviço do systemd, os alertas do Telegram chegam
+> sem botões.
+
+---
+
 ## Análise automática em detalhe
 
 ### Nota de cada achado (0–100)
@@ -574,6 +614,7 @@ netscan/
 ├── analysis.py           # KEV/EPSS, confiança, nota de risco, tipo de aparelho, resumo
 ├── automation.py         # inventário, alertas, notificações, preferências, serviço do systemd
 ├── server.py             # servidor web (Docker/Umbrel): login, API, eventos ao vivo, agendamento
+├── telegram_bot.py       # bot do Telegram: comandos e botões (roda dentro do servidor)
 ├── main.js / preload.js  # app desktop (Electron): spawn do backend, sudo, IPC, PDF
 ├── renderer/             # interface única para desktop e navegador
 │   ├── index.html · renderer.js · styles.css
@@ -596,7 +637,7 @@ eventos chegam por IPC; no navegador, por Server-Sent Events (`/api/events`).
 ## Desenvolvimento e testes
 
 ```bash
-python3 -m unittest test_netscan test_analysis test_automation test_server   # 42 testes, sem root
+python3 -m unittest test_netscan test_analysis test_automation test_telegram_bot test_server   # 56 testes, sem root
 npm start                                                                    # app desktop em modo desenvolvimento
 npm run dist                                                                 # gera .deb e .AppImage em dist/
 NETSCAN_DATA=./dev-data NETSCAN_PASSWORD=teste python3 server.py             # versão web em http://localhost:7765
@@ -607,7 +648,8 @@ Os testes cobrem a leitura do XML do nmap, a seleção adaptativa de checagens, 
 configuração, a nota de risco e o KEV/EPSS (com cache falso), o tipo de aparelho, o inventário, as
 regras de alerta, as preferências, as unidades do systemd, o envio de webhook (servidor local) e
 o servidor web de ponta a ponta (login, CSRF, token oculto, caminhos confinados e uma varredura
-real de `127.0.0.1` acompanhada pelos eventos ao vivo).
+real de `127.0.0.1` acompanhada pelos eventos ao vivo) e o bot do Telegram (chat autorizado,
+validação de alvo, botões, pausar/retomar e o resumo ao fim da varredura).
 
 ---
 

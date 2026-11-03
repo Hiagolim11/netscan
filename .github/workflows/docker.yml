@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Testes
-        run: python3 -m unittest test_netscan test_analysis test_automation
+        run: python3 -m unittest test_netscan test_analysis test_automation test_telegram_bot
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

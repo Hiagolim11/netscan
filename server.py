@@ -30,6 +30,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import automation
+import telegram_bot
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "renderer")
@@ -148,6 +149,7 @@ class Scanner:
         self.lock = threading.Lock()
         self.buffer = []          # eventos da varredura atual/última: quem abre a página depois vê tudo
         self.clients = set()
+        self.listeners = []       # funções chamadas a cada evento (bot do Telegram)
 
     @property
     def running(self):
@@ -171,6 +173,12 @@ class Scanner:
             del self.buffer[:-5000]
             for q in self.clients:
                 q.put(msg)
+            listeners = list(self.listeners)
+        for fn in listeners:
+            try:
+                fn(msg)
+            except Exception as e:  # um ouvinte com erro não derruba a varredura
+                log(f"Erro ao repassar evento: {e}")
 
     def start(self, opts, origin="manual"):
         with self.lock:
@@ -227,15 +235,16 @@ class Scheduler(threading.Thread):
         self.next_run = None
 
     def status(self):
-        every = automation.load_settings(SETTINGS)["schedule"]["every"]
-        nxt = datetime.fromtimestamp(self.next_run).strftime("%H:%M") if every and self.next_run else None
-        return {"every": every, "next": nxt}
+        sch = automation.load_settings(SETTINGS)["schedule"]
+        every, paused = sch["every"], sch["paused"]
+        nxt = datetime.fromtimestamp(self.next_run).strftime("%H:%M") if every and not paused and self.next_run else None
+        return {"every": every, "paused": paused, "next": nxt}
 
     def run(self):
         while True:
             s = automation.load_settings(SETTINGS)
             every = s["schedule"]["every"]
-            if every < 5:
+            if every < 5 or s["schedule"]["paused"]:
                 self.next_run = None
             elif self.next_run is None:
                 self.next_run = time.time() + every * 60
@@ -451,11 +460,13 @@ def make_handler(password, sessions, scanner, scheduler):
 
 def main():
     os.makedirs(DATA, exist_ok=True)
+    os.environ["NETSCAN_TELEGRAM_BUTTONS"] = "1"  # alertas saem com botões, atendidos pelo bot abaixo
     password = load_password()
     sessions = Sessions()
     scanner = Scanner()
     scheduler = Scheduler(scanner)
     scheduler.start()
+    telegram_bot.TelegramBot(SETTINGS, DATA, scanner, scheduler, history_list, log).start()
     httpd = ThreadingHTTPServer((BIND, PORT), make_handler(password, sessions, scanner, scheduler))
     httpd.daemon_threads = True
 

@@ -11,7 +11,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY netscan.py analysis.py automation.py server.py ./
+COPY netscan.py analysis.py automation.py server.py telegram_bot.py ./
 COPY renderer/ ./renderer/
 
 # HOME no volume: o cache do CISA KEV/EPSS sobrevive a atualizações do container

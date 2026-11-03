@@ -167,6 +167,23 @@ class TestNetscan(unittest.TestCase):
         self.assertEqual(netscan.service_scan_args(a), ["-t", "192.168.0.0/24", "-x", "192.168.0.1", "--fast",
                                                         "--ipv6", "-w", "4", "--host-timeout", "600"])
 
+    def test_detect_subnets_ignores_virtual(self):
+        from unittest import mock
+        umbrel = """1: lo    inet 127.0.0.1/8 scope host lo
+2: enp2s0    inet 10.0.0.3/24 brd 10.0.0.255 scope global dynamic enp2s0
+3: br-438b364e3446    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-438b364e3446
+4: docker0    inet 172.17.0.1/16 scope global docker0
+5: tailscale0    inet 100.98.134.62/32 scope global tailscale0
+6: dind0    inet 10.32.0.1/16 scope global dind0
+7: umbrel-vm    inet 10.203.0.1/24 scope global umbrel-vm
+8: wlp3s0    inet 192.168.50.7/24 scope global wlp3s0"""
+        def fake_output(cmd, text=True):
+            return "default via 10.0.0.1 dev enp2s0 proto dhcp" if "route" in cmd else umbrel
+        physical = {"enp2s0", "wlp3s0"}
+        with mock.patch("subprocess.check_output", side_effect=fake_output), \
+             mock.patch.object(netscan, "is_physical_iface", side_effect=lambda n: n in physical):
+            self.assertEqual(netscan.detect_local_subnets(), ["10.0.0.0/24", "192.168.50.0/24"])
+
 
 if __name__ == "__main__":
     unittest.main()

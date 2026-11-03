@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   web:
-    image: ghcr.io/hiagolim11/netscan:1.3.0
+    image: ghcr.io/hiagolim11/netscan:1.4.0
     # rede do host para enxergar a LAN (como o Home Assistant no Umbrel)
     network_mode: host
     cap_add:

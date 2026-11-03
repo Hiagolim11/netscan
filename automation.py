@@ -79,7 +79,7 @@ def build_alerts(hosts, diff=None, new_keys=(), baseline=False):
         if not baseline and h.get("inv_key") in new_keys and not h.get("trusted"):
             what = h.get("type_label") or "aparelho"
             who = h.get("vendor") or h.get("hostname") or "fabricante desconhecido"
-            alerts.append({"level": "high", "ip": h["ip"],
+            alerts.append({"level": "high", "ip": h["ip"], "key": h.get("inv_key"),
                            "text": f"Dispositivo nunca visto na rede: {h['ip']} ({what}, {who})."})
     changed = (diff or {}).get("changed", {})
     for ip, d in changed.items():
@@ -118,6 +118,15 @@ def _post(url, body, content_type):
 LEVEL_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
+def alert_keyboard(alerts):
+    """Botões do alerta no Telegram: ações rápidas + 'confiar' para aparelhos desconhecidos."""
+    rows = [[{"text": "🔍 Verificar agora", "callback_data": "scan"},
+             {"text": "📊 Resumo", "callback_data": "summary"}]]
+    for a in [a for a in alerts if a.get("key")][:4]:
+        rows.append([{"text": f"✅ Confiar em {a['ip']}", "callback_data": f"trust:{a['key']}"[:64]}])
+    return {"inline_keyboard": rows}
+
+
 def notify(alerts, summary_line="", log=None, config=None):
     """Envia os alertas pelos canais configurados. Falha de envio só é registrada.
     config: bloco "integrations" do settings.json; sem ele, usa as variáveis de ambiente."""
@@ -145,8 +154,10 @@ def notify(alerts, summary_line="", log=None, config=None):
     if token and chat:
         try:
             url = f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/sendMessage"
-            _post(url, urllib.parse.urlencode({"chat_id": chat, "text": text[:4000]}).encode(),
-                  "application/x-www-form-urlencoded")
+            params = {"chat_id": chat, "text": text[:4000]}
+            if os.environ.get("NETSCAN_TELEGRAM_BUTTONS") == "1":  # só o servidor (com o bot) atende os botões
+                params["reply_markup"] = json.dumps(alert_keyboard(alerts))
+            _post(url, urllib.parse.urlencode(params).encode(), "application/x-www-form-urlencoded")
             sent.append("telegram")
         except (OSError, ValueError) as e:
             log(f"Falha ao enviar Telegram: {type(e).__name__}", "~")  # sem a URL: ela contém o token
@@ -166,9 +177,9 @@ SETTINGS_FILE = "settings.json"
 DEFAULT_SETTINGS = {
     "scan": {"target": "", "mode": "normal", "useSudo": True, "ports": "", "exclude": "", "workers": 2, "udp": False,
              "noPing": False, "ipv6": False, "defaultCreds": False, "compare": "latest"},
-    "schedule": {"every": 0},
+    "schedule": {"every": 0, "paused": False},
     "integrations": {"webhook": "", "telegram_token": "", "telegram_chat": "", "min_level": "medium",
-                     "desktop": True},
+                     "desktop": True, "telegram_bot": True},
 }
 
 

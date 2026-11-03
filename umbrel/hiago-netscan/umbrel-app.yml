@@ -2,7 +2,7 @@ manifestVersion: 1
 id: hiago-netscan
 category: networking
 name: netscan
-version: "1.3.0"
+version: "1.4.0"
 tagline: Análise automática de segurança da sua rede local
 icon: https://raw.githubusercontent.com/Hiagolim11/umbrel-app-store/master/hiago-netscan/icon.png
 description: >-
@@ -14,8 +14,10 @@ description: >-
 
   Use somente na sua própria rede ou com autorização explícita.
 releaseNotes: >-
-  Primeira versão para servidor: interface web com login, varredura agendada,
-  integrações configuráveis pela interface e relatórios em HTML, CSV e PDF.
+  Bot do Telegram interativo: botões Verificar agora, Resumo, Relatório e Confiar
+  nos alertas, e comandos /verificar (inclusive de um IP), /status, /ultimo,
+  /aparelhos, /relatorio, /pausar e /retomar. Corrige a detecção de sub-redes,
+  que incluía redes internas do Umbrel (dind0, umbrel-vm) na varredura.
 developer: Hiagolim11
 website: https://github.com/Hiagolim11/netscan
 dependencies: []

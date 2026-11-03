@@ -3,5 +3,6 @@
 !analysis.py
 !automation.py
 !server.py
+!telegram_bot.py
 !renderer/
 renderer/node_modules

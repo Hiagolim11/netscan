@@ -6,7 +6,7 @@ const els = {
   target: $('target'), sudo: $('sudo'), modeHint: $('modeHint'),
   prefsBtn: $('prefsBtn'), prefsOverlay: $('prefsOverlay'), prefsClose: $('prefsClose'), logoutBtn: $('logoutBtn'),
   webhook: $('webhook'), tgToken: $('tgToken'), tgTokenHint: $('tgTokenHint'), tgChat: $('tgChat'), minLevel: $('minLevel'),
-  desktopNotify: $('desktopNotify'), testNotify: $('testNotify'), testResult: $('testResult'),
+  desktopNotify: $('desktopNotify'), telegramBot: $('telegramBot'), testNotify: $('testNotify'), testResult: $('testResult'),
   schedEvery: $('schedEvery'), schedStatus: $('schedStatus'), downloadCsv: $('downloadCsv'),
   ports: $('ports'), exclude: $('exclude'), workers: $('workers'),
   udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), defaultCreds: $('defaultCreds'), compare: $('compare'),
@@ -759,6 +759,7 @@ function fillPrefs(s) {
   els.schedEvery.value = s.schedule.every;
   els.webhook.value = it.webhook; els.tgChat.value = it.telegram_chat; els.minLevel.value = it.min_level;
   els.desktopNotify.checked = it.desktop;
+  els.telegramBot.checked = it.telegram_bot !== false;
   // o servidor nunca devolve o token: só diz se há um salvo
   els.tgToken.value = it.telegram_token || '';
   els.tgToken.placeholder = it.telegram_token_set ? 'salvo — digite para trocar' : '123456:ABC…';
@@ -777,6 +778,7 @@ function collectPrefs() {
     integrations: {
       webhook: els.webhook.value.trim(), telegram_token: els.tgToken.value.trim(),
       telegram_chat: els.tgChat.value.trim(), min_level: els.minLevel.value, desktop: els.desktopNotify.checked,
+      telegram_bot: els.telegramBot.checked,
     },
   };
 }
@@ -807,8 +809,10 @@ async function refreshSchedule() {
   if (window.netscan.platform === 'web') {
     const info = await window.netscan.info();
     const sch = info && info.scheduler;
-    els.schedStatus.textContent = sch && sch.every ? `Ativo: a cada ${sch.every} min` + (sch.next ? ` · próxima às ${sch.next}` : '') : 'Desligado.';
-    els.schedStatus.classList.toggle('svc-on', !!(sch && sch.every));
+    els.schedStatus.textContent = !(sch && sch.every) ? 'Desligado.'
+      : sch.paused ? `Pausado (pelo Telegram) — a cada ${sch.every} min. Envie /retomar ao bot para voltar.`
+      : `Ativo: a cada ${sch.every} min` + (sch.next ? ` · próxima às ${sch.next}` : '');
+    els.schedStatus.classList.toggle('svc-on', !!(sch && sch.every && !sch.paused));
   } else {
     refreshService();
   }
