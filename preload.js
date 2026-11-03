@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('netscan', {
   trust: (key, on) => ipcRenderer.invoke('inventory:trust', key, on),
   serviceStatus: () => ipcRenderer.invoke('service:status'),
   openPath: (p) => ipcRenderer.invoke('open:path', p),
+  exportPdf: (dir) => ipcRenderer.invoke('report:pdf', dir),
   openEdb: (id) => ipcRenderer.invoke('open:edb', id),
   openWeb: (ip, port, tls) => ipcRenderer.invoke('open:web', ip, port, tls),
   onEvent: (cb) => ipcRenderer.on('scan:event', (_e, data) => cb(data)),

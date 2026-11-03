@@ -5,9 +5,9 @@ const $ = (id) => document.getElementById(id);
 const els = {
   target: $('target'), fast: $('fast'), deep: $('deep'), sudo: $('sudo'),
   ports: $('ports'), exclude: $('exclude'), workers: $('workers'),
-  udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), compare: $('compare'),
+  udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), defaultCreds: $('defaultCreds'), compare: $('compare'),
   toolbar: $('toolbar'), filter: $('filter'), onlyVuln: $('onlyVuln'), expandAll: $('expandAll'),
-  openHtml: $('openHtml'), progress: $('progress'), progressFill: $('progressFill'),
+  openHtml: $('openHtml'), exportPdf: $('exportPdf'), progress: $('progress'), progressFill: $('progressFill'),
   analysis: $('analysis'), anRisk: $('anRisk'), anLevel: $('anLevel'), anSummary: $('anSummary'),
   anTop: $('anTop'), anTopWrap: $('anTopWrap'), anAlerts: $('anAlerts'),
   svcStatus: $('svcStatus'), svcEvery: $('svcEvery'), svcInstall: $('svcInstall'), svcRemove: $('svcRemove'),
@@ -50,6 +50,7 @@ function currentOpts() {
     udp: els.udp.checked,
     noPing: els.noPing.checked,
     ipv6: els.ipv6.checked,
+    defaultCreds: els.defaultCreds.checked,
     compare: els.compare.value,
     repeat: Math.max(0, parseInt(els.repeat.value, 10) || 0),
   };
@@ -60,7 +61,7 @@ function setRunning(on) {
   for (const el of [els.start]) el.disabled = on;
   els.stop.disabled = !on;
   for (const el of [els.target, els.fast, els.deep, els.sudo, els.ports, els.exclude,
-    els.workers, els.udp, els.noPing, els.ipv6, els.compare, els.repeat]) el.disabled = on;
+    els.workers, els.udp, els.noPing, els.ipv6, els.defaultCreds, els.compare, els.repeat]) el.disabled = on;
   if (state.monitorTimer) els.stop.disabled = false; // permite parar o monitoramento na espera
   if (!on) {
     setProgress('off');
@@ -687,6 +688,15 @@ els.openHtml.addEventListener('click', () => {
   if (state.outdir) window.netscan.openPath(state.outdir + '/relatorio.html');
 });
 
+els.exportPdf.addEventListener('click', async () => {
+  if (!state.outdir) return;
+  els.exportPdf.disabled = true;
+  logLine('[*] Gerando PDF…');
+  const res = await window.netscan.exportPdf(state.outdir);
+  els.exportPdf.disabled = false;
+  logLine(res && res.ok ? `[+] PDF salvo em ${res.path}` : '[!] ' + ((res && res.error) || 'Falha ao gerar o PDF.'),
+    res && res.ok ? 'ln-accent' : 'ln-danger');
+});
 els.filter.addEventListener('input', applyFilter);
 els.anTop.addEventListener('click', (e) => {
   const b = e.target.closest('.an-item');

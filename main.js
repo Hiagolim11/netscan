@@ -314,6 +314,32 @@ ipcMain.handle('open:path', (_evt, p) => {
   return { ok: true };
 });
 
+// relatorio.html -> relatorio.pdf usando o Chromium do próprio Electron (sem dependência extra)
+ipcMain.handle('report:pdf', async (_evt, outdir) => {
+  const dir = path.resolve(String(outdir || ''));
+  const allowed = [workDir(), SERVICE_DIR].some((base) => dir.startsWith(path.resolve(base) + path.sep));
+  const html = path.join(dir, 'relatorio.html');
+  if (!allowed || !fs.existsSync(html)) return { ok: false, error: 'Relatório HTML não encontrado.' };
+  const pdfWin = new BrowserWindow({ show: false, webPreferences: { javascript: false } });
+  try {
+    await pdfWin.loadFile(html);
+    const data = await pdfWin.webContents.printToPDF({ printBackground: true, pageSize: 'A4',
+      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 } });
+    // a pasta do serviço é do root: se não der para gravar lá, salva em ~/
+    let out = path.join(dir, 'relatorio.pdf');
+    try { fs.writeFileSync(out, data); } catch (_) {
+      out = path.join(app.getPath('home'), `netscan-${path.basename(dir)}.pdf`);
+      fs.writeFileSync(out, data);
+    }
+    shell.openPath(out);
+    return { ok: true, path: out };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  } finally {
+    pdfWin.destroy();
+  }
+});
+
 // abre a página do exploit no Exploit-DB (só aceita o ID numérico)
 ipcMain.handle('open:edb', (_evt, id) => {
   if (!/^\d{1,7}$/.test(String(id))) return { ok: false };

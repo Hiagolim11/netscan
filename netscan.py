@@ -812,6 +812,9 @@ def write_html(report, path):
         "pre{white-space:pre-wrap;font-size:12px;color:#b5b8bf;max-height:240px;overflow:auto}",
         "a{color:#46e39a}",
         ".tag{display:inline-block;padding:1px 6px;border-radius:3px;color:#000;font-weight:700;font-size:11px}",
+        # impressão/PDF: fundo claro e saídas completas (sem rolagem cortando texto)
+        "@media print{body{background:#fff;color:#111;max-width:none}.host{background:#f3f4f6;break-inside:avoid}"
+        ".dim{color:#555}pre{color:#333;max-height:none;overflow:visible}a{color:#05603a}td,th{border-color:#ddd}}",
         "</style>",
         f"<h1>netscan</h1><div class='dim'>Alvo {e(report['target'])} · {e(report['timestamp'])} · "
         f"{len(report['hosts'])} dispositivo(s)</div><p>",
@@ -877,6 +880,29 @@ def write_html(report, path):
         parts.append("</div>")
     with open(path, "w") as f:
         f.write("".join(parts))
+
+
+def write_pdf(html_path, pdf_path):
+    """HTML -> PDF com o que houver instalado (Chromium/Chrome headless ou WeasyPrint)."""
+    for browser in ("chromium", "google-chrome", "chromium-browser"):
+        exe = shutil.which(browser)
+        if exe:
+            # --no-sandbox: o sandbox do Chromium recusa rodar como root (sudo)
+            cmd = [exe, "--headless", "--disable-gpu", "--no-pdf-header-footer", f"--print-to-pdf={pdf_path}",
+                   "file://" + os.path.abspath(html_path)]
+            if os.geteuid() == 0:
+                cmd.insert(1, "--no-sandbox")
+            break
+    else:
+        exe = shutil.which("weasyprint")
+        if not exe:
+            return False
+        cmd = [exe, html_path, pdf_path]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0
 
 
 def write_csv(hosts, path):
@@ -1056,6 +1082,7 @@ def main():
     parser.add_argument("--default-creds", action="store_true", help="Testa senhas padrão de fábrica/vazias (faz tentativas de login; desligado por padrão).")
     parser.add_argument("--offline", action="store_true", help="Não baixa CISA KEV/EPSS (usa só o cache local).")
     parser.add_argument("--compare", help="relatorio.json de uma varredura anterior (ou 'latest' para a mais recente) para mostrar o que mudou.")
+    parser.add_argument("--pdf", action="store_true", help="Também gera relatorio.pdf (usa Chromium/Chrome ou WeasyPrint).")
     parser.add_argument("--notify", action="store_true", help="Envia os alertas (webhook/Telegram/desktop, configurados por variáveis de ambiente).")
     parser.add_argument("--keep", type=int, default=0, help="Mantém só as N varreduras mais recentes na pasta atual (0 = todas).")
     parser.add_argument("--install-service", action="store_true", help="Instala o monitoramento periódico no systemd (root) com as opções de varredura dadas.")
@@ -1208,6 +1235,12 @@ def main():
         sent = automation.notify(alerts, f"risco {an['label']} ({an['risk']}/100), {len(alerts)} alerta(s)", log)
         log(f"Alertas enviados por: {', '.join(sent) or 'nenhum canal configurado'}.", "+")
     totals = write_report(target, hosts, outdir, diff, an, alerts)
+    if args.pdf:
+        pdf = os.path.join(outdir, "relatorio.pdf")
+        if write_pdf(os.path.join(outdir, "relatorio.html"), pdf):
+            log(f"PDF salvo em:       {pdf}", "+")
+        else:
+            log("Não consegui gerar o PDF (instale chromium ou weasyprint).", "~")
     if args.keep:
         removed = automation.prune_results(".", args.keep)
         if removed:

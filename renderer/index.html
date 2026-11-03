@@ -78,6 +78,10 @@
           <input id="ipv6" type="checkbox" />
           <span>IPv6 — acha vizinhos IPv6 e portas abertas só via IPv6 (alvo vazio)</span>
         </label>
+        <label class="check check-warn">
+          <input id="defaultCreds" type="checkbox" />
+          <span>Testar senhas padrão — tenta logins de fábrica (admin/admin…) em web, MySQL e MSSQL. Pode gerar alertas ou bloquear contas; use só com autorização.</span>
+        </label>
         <label class="field">
           <span class="field-label">Comparar com</span>
           <select id="compare"><option value="latest">a varredura anterior</option><option value="">não comparar</option></select>
@@ -160,6 +164,7 @@
         <span id="reportText"></span>
         <span class="report-actions">
           <button id="openHtml" class="btn btn-ghost">Abrir relatório HTML</button>
+          <button id="exportPdf" class="btn btn-ghost">Exportar PDF</button>
           <button id="openReport" class="btn btn-ghost">Abrir pasta</button>
         </span>
       </footer>

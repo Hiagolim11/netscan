@@ -484,3 +484,4 @@ body { display: flex; flex-direction: column; }
 .svc-row input { width: 76px; background: var(--surface); color: var(--ink); border: 1px solid var(--surface-2); border-radius: var(--r); padding: 6px 8px; font-family: var(--mono); }
 .svc-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .history-meta i { color: var(--accent); font-style: normal; }
+.check-warn span { color: var(--sev-medium); }
