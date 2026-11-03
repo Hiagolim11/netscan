@@ -143,7 +143,7 @@ class TelegramBot(threading.Thread):
         try:
             self.api("sendMessage", params)
         except (OSError, ValueError) as e:
-            self.log(f"Telegram: falha ao enviar mensagem ({type(e).__name__}).")
+            self.log(f"Telegram: falha ao enviar mensagem — {automation.telegram_error(e)}")
 
     # ---------- laço principal ----------
     def run(self):
@@ -167,7 +167,7 @@ class TelegramBot(threading.Thread):
                     self.handle_update(upd, chat)
             except (OSError, ValueError) as e:
                 # token errado, sem internet ou outro processo usando o mesmo bot (409)
-                self.log(f"Telegram: {type(e).__name__}; nova tentativa em 30 s.")
+                self.log(f"Telegram: {automation.telegram_error(e)}; nova tentativa em 30 s.")
                 time.sleep(30)
 
     def handle_update(self, upd, allowed_chat):
@@ -310,7 +310,7 @@ class TelegramBot(threading.Thread):
                                               + (" — abra no navegador" if fname.endswith(".html") else "")},
                              files={"document": (f"netscan-{hist[0]['name']}{os.path.splitext(fname)[1]}", data)})
                 except (OSError, ValueError) as e:
-                    self.send(chat, f"Não consegui enviar o relatório ({type(e).__name__}).")
+                    self.send(chat, f"Não consegui enviar o relatório: {automation.telegram_error(e)}.")
                 return
         self.send(chat, "O relatório da última varredura não foi encontrado.")
 

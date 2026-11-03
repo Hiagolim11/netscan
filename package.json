@@ -1,6 +1,6 @@
 {
   "name": "netscan-desktop",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Varredura de rede com descoberta de dispositivos e checagem de vulnerabilidades.",
   "homepage": "https://github.com/Hiagolim11/netscan",
   "main": "main.js",

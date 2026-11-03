@@ -2,7 +2,7 @@ manifestVersion: 1
 id: hiago-netscan
 category: networking
 name: netscan
-version: "1.4.0"
+version: "1.4.1"
 tagline: Análise automática de segurança da sua rede local
 icon: https://raw.githubusercontent.com/Hiagolim11/umbrel-app-store/master/hiago-netscan/icon.png
 description: >-
@@ -14,10 +14,8 @@ description: >-
 
   Use somente na sua própria rede ou com autorização explícita.
 releaseNotes: >-
-  Bot do Telegram interativo: botões Verificar agora, Resumo, Relatório e Confiar
-  nos alertas, e comandos /verificar (inclusive de um IP), /status, /ultimo,
-  /aparelhos, /relatorio, /pausar e /retomar. Corrige a detecção de sub-redes,
-  que incluía redes internas do Umbrel (dind0, umbrel-vm) na varredura.
+  Falhas do Telegram agora mostram o motivo real e o que fazer (token inválido,
+  chat não encontrado, falta enviar /start ao bot) em vez de só "HTTPError".
 developer: Hiagolim11
 website: https://github.com/Hiagolim11/netscan
 dependencies: []

@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -109,6 +110,32 @@ def build_alerts(hosts, diff=None, new_keys=(), baseline=False):
 
 # ---------------- notificações ----------------
 
+def telegram_error(e):
+    """Motivo legível de uma falha da API do Telegram, sem expor o token (que vai na URL)."""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            desc = json.loads(e.read() or b"{}").get("description", "")
+        except (ValueError, OSError):
+            desc = ""
+        low = desc.lower()
+        if e.code == 401 or e.code == 404:
+            hint = "token inválido — copie de novo o token do @BotFather"
+        elif "chat not found" in low:
+            hint = "chat não encontrado — confira o id do chat e envie /start ao bot antes"
+        elif e.code == 403:
+            hint = "o bot não pode falar com você — abra o bot no Telegram e envie /start (ou desbloqueie-o)"
+        elif e.code == 409:
+            hint = "o bot está em uso por outro programa/servidor ao mesmo tempo"
+        elif e.code == 429:
+            hint = "muitas mensagens seguidas — o Telegram pediu para esperar"
+        else:
+            hint = "o Telegram recusou a mensagem"
+        return f"{hint} (HTTP {e.code}{': ' + desc if desc else ''})"
+    if isinstance(e, urllib.error.URLError):
+        return f"sem conexão com o Telegram ({e.reason})"
+    return type(e).__name__
+
+
 def _post(url, body, content_type):
     req = urllib.request.Request(url, data=body, headers={"Content-Type": content_type, "User-Agent": "netscan"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -160,7 +187,7 @@ def notify(alerts, summary_line="", log=None, config=None):
             _post(url, urllib.parse.urlencode(params).encode(), "application/x-www-form-urlencoded")
             sent.append("telegram")
         except (OSError, ValueError) as e:
-            log(f"Falha ao enviar Telegram: {type(e).__name__}", "~")  # sem a URL: ela contém o token
+            log(f"Falha ao enviar Telegram: {telegram_error(e)}", "~")
     # com config (app/servidor), a notificação de desktop é feita pela própria interface
     if config is None and shutil.which("notify-send") and os.environ.get("DISPLAY") and os.geteuid() != 0:
         try:

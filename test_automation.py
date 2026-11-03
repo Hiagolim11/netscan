@@ -160,5 +160,34 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(sent, ["webhook"])
 
 
+class TestTelegramErrors(unittest.TestCase):
+    def err(self, code, desc):
+        import io
+        import urllib.error
+        body = json.dumps({"ok": False, "error_code": code, "description": desc}).encode()
+        return urllib.error.HTTPError("https://api.telegram.org/bot123:SECRETO/sendMessage", code, "x", {}, io.BytesIO(body))
+
+    def test_reasons_are_readable_and_hide_token(self):
+        cases = [(401, "Unauthorized", "token inválido"), (404, "Not Found", "token inválido"),
+                 (400, "Bad Request: chat not found", "chat não encontrado"),
+                 (403, "Forbidden: bot can't initiate conversation with a user", "envie /start"),
+                 (403, "Forbidden: bot was blocked by the user", "desbloqueie")]
+        for code, desc, expect in cases:
+            msg = automation.telegram_error(self.err(code, desc))
+            self.assertIn(expect, msg)
+            self.assertIn(f"HTTP {code}", msg)
+            self.assertNotIn("SECRETO", msg)
+
+    def test_notify_reports_reason(self):
+        logs = []
+        with mock.patch.object(automation, "_post", side_effect=self.err(400, "Bad Request: chat not found")):
+            sent = automation.notify([{"level": "high", "ip": "x", "text": "t"}],
+                                     log=lambda m, l="*": logs.append(m),
+                                     config={"telegram_token": "123:SECRETO", "telegram_chat": "@eu", "min_level": "low"})
+        self.assertEqual(sent, [])
+        self.assertIn("chat não encontrado", logs[0])
+        self.assertNotIn("SECRETO", logs[0])
+
+
 if __name__ == "__main__":
     unittest.main()
