@@ -22,6 +22,7 @@
 html, body {
   margin: 0;
   height: 100%;
+  overflow: hidden;           /* só o painel e os resultados rolam, nunca a janela */
   background: var(--ground);
   color: var(--ink);
   font-family: var(--sans);
@@ -29,6 +30,8 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+body { display: flex; flex-direction: column; }
+.bar, .progress { flex: none; }
 
 ::selection { background: var(--accent); color: var(--accent-ink); }
 
@@ -59,7 +62,8 @@ html, body {
   grid-template-columns: 320px 1fr;
   gap: 1px;                 /* passo de tom faz a separação, não linha */
   background: var(--surface);
-  height: calc(100vh - 60px);
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---- Control panel ---- */
@@ -69,7 +73,9 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
 }
+.panel > * { flex: none; }
 .panel-title {
   font-size: 13px;
   font-weight: 600;
@@ -126,9 +132,9 @@ html, body {
 
 .legal { font-size: 11px; color: var(--ink-faint); line-height: 1.45; }
 
-.log {
-  flex: 1;
-  min-height: 0;
+.panel > .log {
+  flex: 1 0 180px;
+  min-height: 180px;
   overflow-y: auto;
   font-family: var(--mono);
   font-size: 12px;
@@ -186,16 +192,20 @@ html, body {
 .device-head {
   display: flex;
   align-items: baseline;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px 16px;
 }
+.device:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .device-ip {
   font-family: var(--mono);
   font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.device-name { color: var(--ink-dim); font-size: 14px; flex: 1; }
-.device-badges { display: flex; gap: 14px; align-items: baseline; }
+.device-name { color: var(--ink-dim); font-size: 14px; flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.device-ip { white-space: nowrap; }
+.device-ip.v6 { font-size: 17px; white-space: normal; overflow-wrap: anywhere; }
+.device-badges { display: flex; gap: 14px; align-items: baseline; margin-left: auto; white-space: nowrap; }
 .badge-num { font-weight: 700; font-variant-numeric: tabular-nums; }
 .badge-ports .badge-num { color: var(--ink); }
 .badge-vuln .badge-num { color: var(--danger); }
@@ -214,10 +224,10 @@ html, body {
 
 .device-detail { margin-top: 14px; display: none; }
 .device.open .device-detail { display: block; }
-.device-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-bottom: 12px; }
+.device-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-bottom: 12px; overflow-wrap: anywhere; }
 
 .ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--ground); }
-.port { background: var(--surface-2); padding: 8px 12px; font-family: var(--mono); font-size: 12px; }
+.port { background: var(--surface-2); padding: 8px 12px; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .port-id { color: var(--accent); font-weight: 600; }
 .port-svc { color: var(--ink); }
 .port-ver { color: var(--ink-dim); display: block; }
@@ -230,8 +240,8 @@ html, body {
   margin-bottom: 8px;
 }
 .vuln-cvewrap { margin-top: 6px; }
-.vuln-id { font-family: var(--mono); font-size: 13px; color: var(--danger); font-weight: 600; }
-.vuln-out { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; margin-top: 6px; max-height: 180px; overflow-y: auto; }
+.vuln-id { font-family: var(--mono); font-size: 13px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.vuln-out { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; max-height: 180px; overflow-y: auto; }
 .no-vuln { color: var(--ink-faint); font-size: 13px; margin-top: 12px; }
 
 /* ---- Report bar ---- */
@@ -241,10 +251,13 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   color: var(--ink-dim);
   font-size: 14px;
 }
+#reportText { overflow-wrap: anywhere; min-width: 0; }
+.report-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
 /* entrance for appearing devices */
 .device { animation: rise .32s ease both; }
@@ -332,7 +345,14 @@ html, body {
 .modal-note { font-size: 11px; color: var(--ink-faint); margin-top: 16px; line-height: 1.45; }
 
 /* ---- Phone / narrow ---- */
+@media (max-width: 1000px) {
+  .shell { grid-template-columns: 280px 1fr; }
+  .stat-num { font-size: 48px; }
+  .content { padding: 20px 20px 0; }
+}
 @media (max-width: 820px) {
+  html, body { overflow: auto; }
+  body { display: block; }
   .shell { grid-template-columns: 1fr; height: auto; }
   .panel { max-height: none; }
   .log { max-height: 160px; }
@@ -357,7 +377,8 @@ html, body {
 .diff-bad { background: var(--danger); color: var(--ground); }
 
 /* ---- Progresso / exploits ---- */
-.device-prog { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.device-prog { order: 10; flex-basis: 100%; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.device-prog:empty { display: none; }
 .badge-expl .badge-num { color: var(--sev-high); }
 .expls { margin-top: 14px; }
 .expls-title { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
@@ -384,3 +405,26 @@ html, body {
 .port-v6 { color: var(--sev-medium); font-size: 11px; font-weight: 700; }
 .vuln-fix { font-size: 13px; color: var(--ink); margin-top: 6px; }
 .vuln-fix b { color: var(--accent); font-weight: 600; }
+
+/* ---- Progresso geral / estados ---- */
+.progress { height: 2px; background: var(--surface); }
+.progress-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
+.progress.indeterminate .progress-fill { width: 30%; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .progress.indeterminate .progress-fill { animation: none; width: 100%; opacity: .4; } }
+.no-match { color: var(--ink-dim); font-size: 14px; padding: 24px 0; }
+.link-btn { background: none; border: 0; padding: 0; margin-left: 8px; color: var(--ink-faint); font: inherit; font-weight: 400; font-size: 12px; cursor: pointer; }
+.link-btn:hover { color: var(--accent); }
+.panel .actions { position: sticky; top: -24px; z-index: 2; background: var(--ground); padding: 12px 0; margin: 6px 0 8px; }
+
+/* ---- Acabamento ---- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-2); border: 2px solid var(--ground); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #2f343e; }
+::-webkit-scrollbar-corner { background: transparent; }
+.adv { margin-top: 18px; }
+.btn { white-space: nowrap; }
+.actions .btn-stop { flex: none; }
+/* zero não é alarme: vermelho só quando há achado */
+.device.clean .badge-vuln .badge-num, .stat-danger.zero .stat-num { color: var(--ink-faint); }

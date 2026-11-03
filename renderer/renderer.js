@@ -7,7 +7,8 @@ const els = {
   ports: $('ports'), exclude: $('exclude'), workers: $('workers'),
   udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), compare: $('compare'),
   toolbar: $('toolbar'), filter: $('filter'), onlyVuln: $('onlyVuln'), expandAll: $('expandAll'),
-  openHtml: $('openHtml'), repeat: $('repeat'), history: $('history'),
+  openHtml: $('openHtml'), progress: $('progress'), progressFill: $('progressFill'),
+  noMatch: $('noMatch'), emptyBig: $('emptyBig'), emptySub: $('emptySub'), clearLog: $('clearLog'), repeat: $('repeat'), history: $('history'),
   start: $('startBtn'), stop: $('stopBtn'),
   log: $('log'),
   statHosts: $('statHosts'), statPorts: $('statPorts'), statVulns: $('statVulns'), sevBreak: $('sevBreak'),
@@ -58,6 +59,13 @@ function setRunning(on) {
   for (const el of [els.target, els.fast, els.deep, els.sudo, els.ports, els.exclude,
     els.workers, els.udp, els.noPing, els.ipv6, els.compare, els.repeat]) el.disabled = on;
   if (state.monitorTimer) els.stop.disabled = false; // permite parar o monitoramento na espera
+  if (!on) {
+    setProgress('off');
+    if (!state.hosts.size) { // cancelado/erro antes de achar algo: volta ao estado inicial
+      els.emptyBig.textContent = 'A rede ainda não foi varrida.';
+      els.emptySub.textContent = 'Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.';
+    }
+  }
   document.querySelectorAll('.act-rescan').forEach((b) => { b.disabled = on; });
 }
 
@@ -80,6 +88,7 @@ function recount() {
   els.statHosts.textContent = state.hosts.size;
   els.statPorts.textContent = ports;
   els.statVulns.textContent = vulns;
+  els.statVulns.parentElement.classList.toggle('zero', !vulns);
   els.sevBreak.innerHTML = SEV
     .filter((s) => totals[s] > 0)
     .map((s) => `<span class="sev-chip c-${s}"><b>${totals[s]}</b>${SEV_LABEL[s]}</span>`)
@@ -110,6 +119,12 @@ function deviceNode(ip) {
     <div class="device-os" hidden></div>
     <div class="device-detail"></div>`;
   node.querySelector('.device-ip').textContent = ip;
+  if (ip.includes(':')) node.querySelector('.device-ip').classList.add('v6');
+  node.tabIndex = 0;
+  node.setAttribute('role', 'button');
+  node.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === node) { e.preventDefault(); node.classList.toggle('open'); }
+  });
   node.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) { if (!e.target.closest('.device-detail')) node.classList.toggle('open'); return; }
@@ -139,6 +154,7 @@ function renderDevice(h) {
   const ports = h.ports || [], vulns = h.vulns || [];
   node.querySelector('.badge-ports .badge-num').textContent = ports.length;
   node.querySelector('.badge-vuln .badge-num').textContent = vulns.length;
+  node.classList.toggle('clean', !vulns.length);
   const nExpl = ports.reduce((a, p) => a + (p.exploits || []).length, 0);
   node.querySelector('.badge-expl .badge-num').textContent = nExpl;
   node.querySelector('.badge-expl').hidden = !nExpl;
@@ -225,11 +241,21 @@ function isTls(p) {
 function applyFilter() {
   const q = els.filter.value.trim().toLowerCase();
   const only = els.onlyVuln.checked;
+  let shown = 0;
   for (const node of els.devices.children) {
     const h = state.hosts.get(node.querySelector('.device-ip').textContent) || {};
     const hit = (!q || (node.dataset.search || '').includes(q)) && (!only || (h.vulns || []).length > 0);
     node.hidden = !hit;
+    if (hit) shown++;
   }
+  els.noMatch.hidden = shown > 0 || !els.devices.children.length;
+}
+
+// barra fina sob o topo: indeterminada na descoberta, proporcional na análise
+function setProgress(mode, frac) {
+  els.progress.hidden = mode === 'off';
+  els.progress.classList.toggle('indeterminate', mode === 'busy');
+  els.progressFill.style.width = mode === 'value' ? `${Math.round(frac * 100)}%` : '';
 }
 
 function copy(text, what) {
@@ -287,7 +313,10 @@ function resetResults() {
   els.devices.innerHTML = '';
   els.devices.hidden = true;
   els.toolbar.hidden = true;
+  els.noMatch.hidden = true;
   els.empty.hidden = false;
+  els.emptyBig.textContent = 'Varrendo a rede…';
+  els.emptySub.textContent = 'Os dispositivos aparecem aqui conforme são encontrados.';
   els.log.innerHTML = '';
   els.report.hidden = true;
   recount();
@@ -345,6 +374,7 @@ window.netscan.onEvent((evt) => {
       els.barTarget.textContent = evt.target + (evt.deep ? ' · profunda' : '') + (evt.root ? ' · root' : '');
       break;
     case 'phase':
+      setProgress(evt.phase === 'discovery' ? 'busy' : 'value', 0);
       els.barPhase.textContent = evt.phase === 'discovery' ? 'descobrindo' : 'varrendo';
       break;
     case 'discovery':
@@ -370,6 +400,7 @@ window.netscan.onEvent((evt) => {
       const node = deviceNode(h.ip);
       node.classList.remove('scanning');
       node.querySelector('.device-prog').textContent = '';
+      setProgress('value', evt.index / evt.total);
       if ((h.vulns || []).length) node.classList.add('open');
       recount();
       break;
@@ -377,6 +408,11 @@ window.netscan.onEvent((evt) => {
     case 'done':
       els.barPhase.textContent = 'concluído';
       setRunning(false);
+      setProgress('off');
+      if (!state.hosts.size) {
+        els.emptyBig.textContent = 'Nenhum dispositivo encontrado.';
+        els.emptySub.textContent = 'Confira o alvo, tente com sudo ou marque "Sem ping" nas opções avançadas.';
+      }
       markDiff(evt.diff);
       notifyDiff(evt.diff);
       refreshHistory();
@@ -389,12 +425,14 @@ window.netscan.onEvent((evt) => {
     case 'aborted':
       els.barPhase.textContent = 'interrompido';
       setRunning(false);
+      setProgress('off');
       scheduleNext();
       break;
     case 'fatal':
       logLine('[!] ' + (evt.error || 'Erro fatal.'), 'ln-danger');
       els.barPhase.textContent = 'erro';
       setRunning(false);
+      setProgress('off');
       break;
   }
 });
@@ -540,6 +578,12 @@ els.openHtml.addEventListener('click', () => {
 });
 
 els.filter.addEventListener('input', applyFilter);
+els.clearLog.addEventListener('click', () => { els.log.innerHTML = ''; });
+els.target.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !state.running) els.start.click(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.pwOverlay.hidden) els.pwCancel.click();
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && !els.toolbar.hidden) { e.preventDefault(); els.filter.focus(); }
+});
 els.onlyVuln.addEventListener('change', applyFilter);
 els.expandAll.addEventListener('click', () => {
   const nodes = [...els.devices.children].filter((n) => !n.hidden);

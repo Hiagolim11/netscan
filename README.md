@@ -104,7 +104,7 @@ npm run dist     # gera dist/netscan-<versão>.AppImage e dist/netscan-<versão>
 ```
 O `.deb` declara as dependências (`nmap`, `python3` + libs do Electron); instale com:
 ```bash
-sudo apt install ./dist/netscan-1.1.0.deb
+sudo apt install ./dist/netscan-1.1.1.deb
 ```
 
 ## Arquivos

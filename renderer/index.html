@@ -15,6 +15,7 @@
       <span id="barPhase" class="bar-phase">ocioso</span>
     </nav>
   </header>
+  <div id="progress" class="progress" hidden><span id="progressFill" class="progress-fill"></span></div>
 
   <main class="shell">
     <!-- Painel de controle -->
@@ -26,6 +27,29 @@
         <input id="target" type="text" placeholder="auto (sub-rede local)" spellcheck="false" />
         <span class="field-hint">CIDR, IP ou vários separados por vírgula. Vazio = suas sub-redes.</span>
       </label>
+
+
+      <label class="check">
+        <input id="fast" type="checkbox" />
+        <span>Rápido — só serviços, sem scripts de vulnerabilidade</span>
+      </label>
+
+      <label class="check">
+        <input id="deep" type="checkbox" />
+        <span>Profunda — todas as portas + scripts extras (lenta)</span>
+      </label>
+
+      <label class="check">
+        <input id="sudo" type="checkbox" checked />
+        <span>sudo (ARP, detecção de SO e mais scripts; pede senha se preciso)</span>
+      </label>
+
+      <div class="actions">
+        <button id="startBtn" class="btn btn-go">Iniciar varredura</button>
+        <button id="stopBtn" class="btn btn-stop" disabled>Parar</button>
+      </div>
+
+      <div class="legal">Use somente em redes próprias ou com autorização explícita.</div>
 
       <details class="adv">
         <summary>Opções avançadas</summary>
@@ -65,32 +89,10 @@
         </label>
       </details>
 
-      <label class="check">
-        <input id="fast" type="checkbox" />
-        <span>Rápido — só serviços, sem scripts de vulnerabilidade</span>
-      </label>
-
-      <label class="check">
-        <input id="deep" type="checkbox" />
-        <span>Profunda — todas as portas + scripts extras (lenta)</span>
-      </label>
-
-      <label class="check">
-        <input id="sudo" type="checkbox" checked />
-        <span>sudo (ARP, detecção de SO e mais scripts; pede senha se preciso)</span>
-      </label>
-
-      <div class="actions">
-        <button id="startBtn" class="btn btn-go">Iniciar varredura</button>
-        <button id="stopBtn" class="btn btn-stop" disabled>Parar</button>
-      </div>
-
-      <div class="legal">Use somente em redes próprias ou com autorização explícita.</div>
-
       <h2 class="panel-title log-title">Histórico</h2>
       <ol id="history" class="history"><li class="history-empty">Nenhuma varredura salva.</li></ol>
 
-      <h2 class="panel-title log-title">Registro</h2>
+      <h2 class="panel-title log-title">Registro <button id="clearLog" class="link-btn" type="button">limpar</button></h2>
       <div id="log" class="log" aria-live="polite"></div>
     </section>
 
@@ -113,8 +115,8 @@
       </div>
 
       <div id="empty" class="empty">
-        <p class="empty-big">A rede ainda não foi varrida.</p>
-        <p class="empty-sub">Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.</p>
+        <p id="emptyBig" class="empty-big">A rede ainda não foi varrida.</p>
+        <p id="emptySub" class="empty-sub">Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.</p>
       </div>
 
       <div id="toolbar" class="toolbar" hidden>
@@ -124,11 +126,14 @@
       </div>
 
       <ol id="devices" class="devices" hidden></ol>
+      <p id="noMatch" class="no-match" hidden>Nenhum dispositivo corresponde ao filtro.</p>
 
       <footer id="reportBar" class="report" hidden>
         <span id="reportText"></span>
-        <button id="openHtml" class="btn btn-ghost">Abrir relatório HTML</button>
-        <button id="openReport" class="btn btn-ghost">Abrir pasta</button>
+        <span class="report-actions">
+          <button id="openHtml" class="btn btn-ghost">Abrir relatório HTML</button>
+          <button id="openReport" class="btn btn-ghost">Abrir pasta</button>
+        </span>
       </footer>
     </section>
   </main>
