@@ -1,14 +1,14 @@
 {
   "name": "netscan-desktop",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Varredura de rede com descoberta de dispositivos e checagem de vulnerabilidades.",
-  "homepage": "https://localhost/netscan",
+  "homepage": "https://github.com/Hiagolim11/netscan",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --linux AppImage deb"
   },
-  "author": "",
+  "author": "Hiagolim11",
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.2.0",
