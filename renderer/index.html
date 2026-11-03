@@ -119,6 +119,21 @@
         <p id="emptySub" class="empty-sub">Inicie uma varredura e os dispositivos aparecem aqui, um a um, conforme são encontrados.</p>
       </div>
 
+      <section id="analysis" class="analysis" hidden aria-label="Análise automática">
+        <div class="an-head">
+          <span id="anRisk" class="an-risk">0</span>
+          <div>
+            <div id="anLevel" class="an-level"></div>
+            <div class="an-cap">risco da rede · 0 a 100</div>
+          </div>
+        </div>
+        <ul id="anSummary" class="an-summary"></ul>
+        <div id="anTopWrap" hidden>
+          <h3 class="an-title">Corrija primeiro</h3>
+          <ol id="anTop" class="an-top"></ol>
+        </div>
+      </section>
+
       <div id="toolbar" class="toolbar" hidden>
         <input id="filter" type="search" placeholder="Filtrar por IP, nome, serviço, CVE…" spellcheck="false" />
         <label class="check"><input id="onlyVuln" type="checkbox" /><span>Só com vulnerabilidades</span></label>

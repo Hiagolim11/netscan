@@ -38,6 +38,8 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
+import analysis
+
 
 JSON_STREAM = False
 CURRENT_PROCS = set()  # processos nmap em execução (para encerramento limpo)
@@ -137,6 +139,16 @@ def detect_local_subnets():
         if net.is_private:
             subnets.append(str(net))
     return subnets
+
+
+def detect_gateway():
+    """IP do gateway padrão (para reconhecer o roteador)."""
+    try:
+        out = subprocess.check_output(["ip", "route", "show", "default"], text=True)
+    except Exception:
+        return None
+    m = re.search(r"default via (\S+)", out)
+    return m.group(1) if m else None
 
 
 def run_nmap(args, label, on_progress=None):
@@ -668,6 +680,19 @@ def write_html(report, path):
     ]
     parts += [f"<span class='tag' style='background:{colors[s]}'>{t[s]} {s}</span> " for s in SEVERITY_ORDER]
     parts.append("</p>")
+    an = report.get("analysis")
+    if an:
+        parts.append(f"<div class='host'><h2>Análise automática — risco {e(an['label'])} ({an['risk']}/100)</h2><ul>")
+        parts += [f"<li>{e(s)}</li>" for s in an["summary"]]
+        parts.append("</ul>")
+        if an["top"]:
+            parts.append("<h3>Corrija primeiro</h3><ol>")
+            for t in an["top"]:
+                parts.append(f"<li><b>{e(t['title'])}</b> — {e(t['ip'])} ({e(t['type'])}) porta {e(t['port'])} "
+                             f"<span class='dim'>nota {t['score']} · {e('; '.join(t['reasons']))}</span>"
+                             f"<br>{e(t.get('fix') or '')}</li>")
+            parts.append("</ol>")
+        parts.append("</div>")
     diff = report.get("diff")
     if diff:
         parts.append("<div class='host'><b>Mudanças desde a varredura anterior</b><ul>")
@@ -679,7 +704,8 @@ def write_html(report, path):
         parts.append("</ul></div>")
     for h in report["hosts"]:
         ident = h.get("hostname") or h.get("vendor") or ""
-        parts.append(f"<div class='host'><h2>{e(h['ip'])} <span class='dim'>{e(ident)}</span></h2>")
+        risk = f" · risco {h['risk']}/100" if "risk" in h else ""
+        parts.append(f"<div class='host'><h2>{e(h['ip'])} <span class='dim'>{e(ident)} · {e(h.get('type_label', ''))}{risk}</span></h2>")
         meta = [x for x in [h.get("mac"), ", ".join(h.get("ipv6") or []), (h.get("os") or {}).get("name")] if x]
         if meta:
             parts.append(f"<div class='dim'>{e(' · '.join(meta))}</div>")
@@ -696,7 +722,12 @@ def write_html(report, path):
         for v in h.get("vulns", []):
             sev = v.get("severity", "info")
             cvss = f" CVSS {v['cvss']}" if v.get("cvss") else ""
+            meta = " · ".join(filter(None, [f"nota {v['score']}" if "score" in v else "",
+                                            f"confiança {v.get('confidence')}" if v.get("confidence") else "",
+                                            "CISA KEV" if v.get("kev") else "",
+                                            f"EPSS {round(v['epss'] * 100)}%" if v.get("epss") else ""]))
             parts.append(f"<p><span class='tag' style='background:{colors[sev]}'>{e(sev.upper())}{cvss}</span> "
+                         f"<span class='dim'>{e(meta)}</span> "
                          f"porta {e(v['port'])} · {e(v['id'])} {e(v.get('title'))} <span class='dim'>{e(', '.join(v.get('cves', [])[:10]))}</span></p>"
                          + (f"<p><b>Correção:</b> {e(v['fix'])}</p>" if v.get("fix") else "")
                          + f"<pre>{e(v['output'])}</pre>")
@@ -709,10 +740,12 @@ def write_csv(hosts, path):
     """Uma linha por porta e uma por achado (planilha/ticket)."""
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["ip", "hostname", "mac", "fabricante", "tipo", "porta", "servico", "versao",
-                    "severidade", "achado", "cvss", "cves", "exploits", "correcao"])
+        w.writerow(["ip", "hostname", "mac", "fabricante", "dispositivo", "risco_host", "tipo", "porta",
+                    "servico", "versao", "severidade", "achado", "cvss", "cves", "exploits", "correcao",
+                    "nota", "confianca", "kev", "epss"])
         for h in hosts:
-            base = [h["ip"], h.get("hostname") or "", h.get("mac") or "", h.get("vendor") or ""]
+            base = [h["ip"], h.get("hostname") or "", h.get("mac") or "", h.get("vendor") or "",
+                    h.get("type_label") or "", h.get("risk", "")]
             for p in h.get("ports", []):
                 ver = " ".join(filter(None, [p.get("product"), p.get("version")]))
                 w.writerow(base + ["porta", _port_key(p), p.get("service") or "", ver, "", "", "", "",
@@ -720,10 +753,12 @@ def write_csv(hosts, path):
             for v in h.get("vulns", []):
                 w.writerow(base + ["achado", v["port"], "", "", v.get("severity"),
                                    v.get("title") or v["id"], v.get("cvss") or "",
-                                   " ".join(v.get("cves", [])), "", v.get("fix") or ""])
+                                   " ".join(v.get("cves", [])), "", v.get("fix") or "",
+                                   v.get("score", ""), v.get("confidence") or "", " ".join(v.get("kev") or []),
+                                   v.get("epss") if v.get("epss") is not None else ""])
 
 
-def write_report(target, hosts, outdir, diff=None):
+def write_report(target, hosts, outdir, diff=None, analysis_=None):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     totals = {s: 0 for s in SEVERITY_ORDER}
     for h in hosts:
@@ -734,6 +769,8 @@ def write_report(target, hosts, outdir, diff=None):
     report = {"target": target, "timestamp": ts, "totals": totals, "hosts": hosts}
     if diff is not None:
         report["diff"] = diff
+    if analysis_ is not None:
+        report["analysis"] = analysis_
     json_path = os.path.join(outdir, "relatorio.json")
     with open(json_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
@@ -753,6 +790,19 @@ def write_report(target, hosts, outdir, diff=None):
         "=" * 72,
         "",
     ]
+    if analysis_:
+        lines.append("ANÁLISE AUTOMÁTICA")
+        lines += [f"  {s}" for s in analysis_["summary"]]
+        if analysis_["top"]:
+            lines.append("")
+            lines.append("CORRIJA PRIMEIRO")
+            for i, t in enumerate(analysis_["top"], 1):
+                lines.append(f"  {i}. [{t['score']}] {t['ip']} ({t['type']}) porta {t['port']} — {t['title']}")
+                if t["reasons"]:
+                    lines.append(f"     Por quê: {'; '.join(t['reasons'])}")
+                if t.get("fix"):
+                    lines.append(f"     Como: {t['fix']}")
+        lines.append("")
     if diff:
         lines.append("MUDANÇAS DESDE A VARREDURA ANTERIOR")
         lines += [f"  + novo dispositivo: {ip}" for ip in diff["new_hosts"]]
@@ -764,7 +814,8 @@ def write_report(target, hosts, outdir, diff=None):
         lines.append("")
     for h in hosts:
         ident = h.get("hostname") or h.get("vendor") or "desconhecido"
-        lines.append(f"[{h['ip']}] {ident}")
+        risk = f"  · risco {h['risk']}/100 ({h.get('risk_label')})" if "risk" in h else ""
+        lines.append(f"[{h['ip']}] {ident} — {h.get('type_label', '?')}{risk}")
         if h.get("mac"):
             lines.append(f"    MAC: {h['mac']}  Fabricante: {h.get('vendor') or '?'}")
         if h.get("ipv6"):
@@ -789,6 +840,17 @@ def write_report(target, hosts, outdir, diff=None):
                 cves = (" " + ", ".join(v["cves"][:6])) if v.get("cves") else ""
                 title = f" — {v['title']}" if v.get("title") else ""
                 lines.append(f"      [{tag}{score}] porta {v['port']} · {v['id']}{title}{cves}")
+                extra = [f"nota {v['score']}"] if "score" in v else []
+                if v.get("confidence"):
+                    extra.append(f"confiança {v['confidence']}")
+                if v.get("kev"):
+                    extra.append("CISA KEV: " + ", ".join(v["kev"]))
+                if v.get("epss"):
+                    extra.append(f"EPSS {round(v['epss'] * 100)}%")
+                if extra:
+                    lines.append(f"          ({' · '.join(extra)})")
+                for n in v.get("notes", []):
+                    lines.append(f"          Atenção: {n}")
                 if v.get("fix"):
                     lines.append(f"          Correção: {v['fix']}")
                 for ol in v["output"].splitlines():
@@ -828,6 +890,7 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=1, help="Hosts analisados em paralelo (1-16, padrão 1).")
     parser.add_argument("--host-timeout", type=int, default=1200, help="Tempo máximo por host, em segundos (padrão 1200).")
     parser.add_argument("-6", "--ipv6", action="store_true", help="Também descobre vizinhos IPv6 (multicast) e procura portas abertas só via IPv6.")
+    parser.add_argument("--offline", action="store_true", help="Não baixa CISA KEV/EPSS (usa só o cache local).")
     parser.add_argument("--compare", help="relatorio.json de uma varredura anterior para mostrar o que mudou.")
     parser.add_argument("--json-stream", action="store_true", help="Emite eventos JSON (um por linha) no stdout, para a interface.")
     args = parser.parse_args()
@@ -885,6 +948,9 @@ def main():
     emit("start", target=target, outdir=outdir, fast=args.fast, deep=args.deep, root=is_root,
          workers=args.workers, udp=args.udp and is_root)
 
+    gateway = detect_gateway()
+    intel = analysis.Intel(offline=args.offline, log=log)
+
     emit("phase", phase="discovery")
     # vizinhos IPv6 por multicast só fazem sentido na rede local (sem alvo explícito)
     hosts = discover_hosts(target, outdir, exclude=args.exclude, no_ping=args.no_ping,
@@ -911,6 +977,10 @@ def main():
                              ipv6_addrs=h.get("ipv6") if args.ipv6 else None)
             for k in ("ports", "vulns", "os", "severity"):
                 h[k] = scan[k]
+            try:
+                analysis.analyze_host(h, intel, gateway)
+            except Exception as e:  # análise nunca derruba a varredura
+                log(f"Falha na análise de {h['ip']}: {e}", "~")
             return h
 
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -931,8 +1001,14 @@ def main():
     if diff:
         log(f"Comparação: {len(diff['new_hosts'])} novo(s), {len(diff['gone_hosts'])} sumido(s), "
             f"{len(diff['changed'])} alterado(s).", "+")
-    totals = write_report(target, hosts, outdir, diff)
-    emit("done", outdir=outdir, hosts=hosts, totals=totals, diff=diff)
+    for h in hosts:
+        if "risk" not in h:  # host que falhou ou não foi analisado
+            analysis.analyze_host(h, None, gateway)
+    an = analysis.analyze_network(hosts, diff)
+    for s in an["summary"]:
+        log(s, "+")
+    totals = write_report(target, hosts, outdir, diff, an)
+    emit("done", outdir=outdir, hosts=hosts, totals=totals, diff=diff, analysis=an)
 
 
 if __name__ == "__main__":

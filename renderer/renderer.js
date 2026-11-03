@@ -8,6 +8,8 @@ const els = {
   udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), compare: $('compare'),
   toolbar: $('toolbar'), filter: $('filter'), onlyVuln: $('onlyVuln'), expandAll: $('expandAll'),
   openHtml: $('openHtml'), progress: $('progress'), progressFill: $('progressFill'),
+  analysis: $('analysis'), anRisk: $('anRisk'), anLevel: $('anLevel'), anSummary: $('anSummary'),
+  anTop: $('anTop'), anTopWrap: $('anTopWrap'),
   noMatch: $('noMatch'), emptyBig: $('emptyBig'), emptySub: $('emptySub'), clearLog: $('clearLog'), repeat: $('repeat'), history: $('history'),
   start: $('startBtn'), stop: $('stopBtn'),
   log: $('log'),
@@ -108,12 +110,14 @@ function deviceNode(ip) {
     <div class="device-head">
       <span class="device-ip"></span>
       <span class="device-name"></span>
+      <span class="device-type" hidden></span>
       <span class="device-prog"></span>
       <span class="device-badges">
         <span class="device-sevdots"></span>
         <span class="badge-ports"><span class="badge-num">0</span><span class="badge-lbl">portas</span></span>
         <span class="badge-vuln"><span class="badge-num">0</span><span class="badge-lbl">vulns</span></span>
         <span class="badge-expl" hidden><span class="badge-num">0</span><span class="badge-lbl">exploits</span></span>
+        <span class="badge-risk" hidden><span class="badge-num">0</span><span class="badge-lbl">risco</span></span>
       </span>
     </div>
     <div class="device-os" hidden></div>
@@ -155,6 +159,15 @@ function renderDevice(h) {
   node.querySelector('.badge-ports .badge-num').textContent = ports.length;
   node.querySelector('.badge-vuln .badge-num').textContent = vulns.length;
   node.classList.toggle('clean', !vulns.length);
+  const typeEl = node.querySelector('.device-type');
+  typeEl.hidden = !h.type_label;
+  typeEl.textContent = h.type_label || '';
+  const riskEl = node.querySelector('.badge-risk');
+  riskEl.hidden = h.risk == null;
+  riskEl.className = 'badge-risk lvl-' + (h.risk_level || 'none');
+  riskEl.querySelector('.badge-num').textContent = h.risk == null ? '' : h.risk;
+  riskEl.title = h.risk_label ? `risco ${h.risk_label}` : '';
+  node.dataset.risk = h.risk || 0;
   const nExpl = ports.reduce((a, p) => a + (p.exploits || []).length, 0);
   node.querySelector('.badge-expl .badge-num').textContent = nExpl;
   node.querySelector('.badge-expl').hidden = !nExpl;
@@ -216,7 +229,9 @@ function renderDevice(h) {
       html += `<div class="vuln c-${sev}">
         <div class="vuln-top"><span class="sev-tag c-${sev}">${esc(sev.toUpperCase())}</span>${cvss}
           <span class="vuln-id">porta ${esc(v.port)} · ${esc(v.id)}${v.title ? ' — ' + esc(v.title) : ''}</span></div>
+        ${vulnChips(v)}
         ${cves ? `<div class="vuln-cvewrap">${cves}</div>` : ''}
+        ${(v.notes || []).map((n) => `<div class="vuln-note">${esc(n)}</div>`).join('')}
         ${v.fix ? `<div class="vuln-fix"><b>Correção:</b> ${esc(v.fix)}</div>` : ''}
         <div class="vuln-out">${esc(v.output)}</div></div>`;
     }
@@ -225,10 +240,43 @@ function renderDevice(h) {
     html += '<div class="no-vuln">Nenhuma vulnerabilidade sinalizada pelos scripts.</div>';
   }
   detail.innerHTML = html;
-  node.dataset.search = [alias, h.ip, h.hostname, h.vendor, h.mac, h.os && h.os.name,
+  node.dataset.search = [alias, h.type_label, h.ip, h.hostname, h.vendor, h.mac, h.os && h.os.name,
     ...ports.map((p) => `${p.port} ${p.service} ${p.product} ${(p.exploits || []).map((x) => `edb-${x.id} ${x.title} ${x.cves.join(' ')}`).join(' ')}`),
     ...(h.ipv6 || []), ...vulns.map((v) => `${v.id} ${v.title || ''} ${(v.cves || []).join(' ')}`)].filter(Boolean).join(' ').toLowerCase();
   applyFilter();
+}
+
+const CONF_LABEL = { high: 'confiança alta', medium: 'confiança média', low: 'confiança baixa' };
+function vulnChips(v) {
+  const chips = [];
+  if (v.score != null) chips.push(`<span class="chip chip-score">nota ${esc(v.score)}</span>`);
+  if (v.kev && v.kev.length) chips.push(`<span class="chip chip-kev" title="${esc(v.kev.join(', '))}">explorada ativamente (KEV)${v.ransomware ? ' · ransomware' : ''}</span>`);
+  if (v.epss) chips.push(`<span class="chip">EPSS ${Math.round(v.epss * 100)}%</span>`);
+  if (v.confidence) chips.push(`<span class="chip chip-conf-${esc(v.confidence)}">${CONF_LABEL[v.confidence] || esc(v.confidence)}</span>`);
+  return chips.length ? `<div class="chips">${chips.join('')}</div>` : '';
+}
+
+function renderAnalysis(an) {
+  els.analysis.hidden = !an;
+  if (!an) return;
+  els.anRisk.textContent = an.risk;
+  els.anRisk.className = 'an-risk lvl-' + an.level;
+  els.anLevel.textContent = an.label.toUpperCase();
+  els.anLevel.className = 'an-level lvl-' + an.level;
+  els.anSummary.innerHTML = an.summary.map((s) => `<li>${esc(s)}</li>`).join('');
+  els.anTopWrap.hidden = !an.top.length;
+  els.anTop.innerHTML = an.top.map((t) => `<li><button class="an-item" data-ip="${esc(t.ip)}">
+      <span class="an-score lvl-${t.score >= 80 ? 'critical' : t.score >= 60 ? 'high' : t.score >= 35 ? 'medium' : 'low'}">${esc(t.score)}</span>
+      <span class="an-body"><b>${esc(t.title)}</b> <span class="an-where">${esc(t.ip)} · ${esc(t.type || '')} · porta ${esc(t.port)}</span>
+      ${t.reasons.length ? `<span class="an-why">${esc(t.reasons.join(' · '))}</span>` : ''}
+      ${t.fix ? `<span class="an-fix">${esc(t.fix)}</span>` : ''}</span></button></li>`).join('');
+}
+
+// mais arriscados primeiro
+function sortDevices() {
+  [...els.devices.children]
+    .sort((a, b) => (+b.dataset.risk || 0) - (+a.dataset.risk || 0))
+    .forEach((n) => els.devices.appendChild(n));
 }
 
 function isWeb(p) {
@@ -314,6 +362,7 @@ function resetResults() {
   els.devices.hidden = true;
   els.toolbar.hidden = true;
   els.noMatch.hidden = true;
+  els.analysis.hidden = true;
   els.empty.hidden = false;
   els.emptyBig.textContent = 'Varrendo a rede…';
   els.emptySub.textContent = 'Os dispositivos aparecem aqui conforme são encontrados.';
@@ -415,6 +464,8 @@ window.netscan.onEvent((evt) => {
       }
       markDiff(evt.diff);
       notifyDiff(evt.diff);
+      if (evt.analysis && !(state.pendingOpts || {}).single) renderAnalysis(evt.analysis);
+      sortDevices();
       refreshHistory();
       scheduleNext();
       if (state.outdir) {
@@ -538,6 +589,8 @@ els.history.addEventListener('click', async (e) => {
   for (const h of r.hosts || []) { state.hosts.set(h.ip, h); renderDevice(h); }
   recount();
   markDiff(r.diff);
+  renderAnalysis(r.analysis);
+  sortDevices();
   els.reportText.textContent = `Relatório de ${r.timestamp} em ${res.outdir}`;
   els.report.hidden = false;
 });
@@ -578,6 +631,16 @@ els.openHtml.addEventListener('click', () => {
 });
 
 els.filter.addEventListener('input', applyFilter);
+els.anTop.addEventListener('click', (e) => {
+  const b = e.target.closest('.an-item');
+  if (!b) return;
+  const node = document.getElementById('dev-' + cssId(b.dataset.ip));
+  if (!node) return;
+  els.filter.value = ''; els.onlyVuln.checked = false; applyFilter();
+  node.classList.add('open');
+  node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  node.focus({ preventScroll: true });
+});
 els.clearLog.addEventListener('click', () => { els.log.innerHTML = ''; });
 els.target.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !state.running) els.start.click(); });
 document.addEventListener('keydown', (e) => {

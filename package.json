@@ -26,6 +26,10 @@
       {
         "from": "netscan.py",
         "to": "netscan.py"
+      },
+      {
+        "from": "analysis.py",
+        "to": "analysis.py"
       }
     ],
     "linux": {
