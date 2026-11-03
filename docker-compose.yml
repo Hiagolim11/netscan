@@ -1,0 +1,20 @@
+# Uso: NETSCAN_PASSWORD='uma-senha-forte' docker compose up -d
+# Interface em http://IP-DO-SERVIDOR:7765
+services:
+  netscan:
+    image: ghcr.io/hiagolim11/netscan:latest
+    build: .
+    container_name: netscan
+    # rede do host: sem isso o container só enxerga a rede interna do Docker
+    network_mode: host
+    # ARP, detecção de SO e varredura SYN usam sockets brutos
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      NETSCAN_PASSWORD: ${NETSCAN_PASSWORD:-}   # vazio = gera uma senha e mostra no log
+      NETSCAN_PORT: "7765"
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - ./netscan-data:/data
+    restart: unless-stopped

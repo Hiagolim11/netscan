@@ -3,7 +3,11 @@
 const $ = (id) => document.getElementById(id);
 
 const els = {
-  target: $('target'), fast: $('fast'), deep: $('deep'), sudo: $('sudo'),
+  target: $('target'), sudo: $('sudo'), modeHint: $('modeHint'),
+  prefsBtn: $('prefsBtn'), prefsOverlay: $('prefsOverlay'), prefsClose: $('prefsClose'), logoutBtn: $('logoutBtn'),
+  webhook: $('webhook'), tgToken: $('tgToken'), tgTokenHint: $('tgTokenHint'), tgChat: $('tgChat'), minLevel: $('minLevel'),
+  desktopNotify: $('desktopNotify'), testNotify: $('testNotify'), testResult: $('testResult'),
+  schedEvery: $('schedEvery'), schedStatus: $('schedStatus'), downloadCsv: $('downloadCsv'),
   ports: $('ports'), exclude: $('exclude'), workers: $('workers'),
   udp: $('udp'), noPing: $('noPing'), ipv6: $('ipv6'), defaultCreds: $('defaultCreds'), compare: $('compare'),
   toolbar: $('toolbar'), filter: $('filter'), onlyVuln: $('onlyVuln'), expandAll: $('expandAll'),
@@ -38,11 +42,15 @@ function saveAlias(h, text) {
   try { localStorage.setItem('netscan.aliases', JSON.stringify(aliases)); } catch (_) {}
 }
 
+const modeInputs = () => [...document.querySelectorAll('input[name="mode"]')];
+function currentMode() { return (modeInputs().find((i) => i.checked) || {}).value || 'normal'; }
+
 function currentOpts() {
+  const mode = currentMode();
   return {
     target: els.target.value.trim() || null,
-    fast: els.fast.checked,
-    deep: els.deep.checked,
+    fast: mode === 'fast',
+    deep: mode === 'deep',
     useSudo: els.sudo.checked,
     ports: els.ports.value.trim() || null,
     exclude: els.exclude.value.trim() || null,
@@ -60,7 +68,7 @@ function setRunning(on) {
   state.running = on;
   for (const el of [els.start]) el.disabled = on;
   els.stop.disabled = !on;
-  for (const el of [els.target, els.fast, els.deep, els.sudo, els.ports, els.exclude,
+  for (const el of [els.target, ...modeInputs(), els.sudo, els.ports, els.exclude,
     els.workers, els.udp, els.noPing, els.ipv6, els.defaultCreds, els.compare, els.repeat]) el.disabled = on;
   if (state.monitorTimer) els.stop.disabled = false; // permite parar o monitoramento na espera
   if (!on) {
@@ -446,6 +454,8 @@ els.pwCancel.addEventListener('click', () => {
 window.netscan.onEvent((evt) => {
   switch (evt.event) {
     case 'start':
+      // varredura iniciada em outra aba ou pelo agendamento do servidor: mostra do zero
+      if (!state.running) { resetResults(); setRunning(true); }
       state.outdir = evt.outdir;
       els.barTarget.textContent = evt.target + (evt.deep ? ' · profunda' : '') + (evt.root ? ' · root' : '');
       break;
@@ -588,7 +598,7 @@ function scheduleNext() {
 }
 
 function notifyAlerts(alerts) {
-  if (!alerts || !alerts.length) return;
+  if (!alerts || !alerts.length || (settings && settings.integrations.desktop === false)) return;
   const body = alerts.slice(0, 3).map((a) => a.text).join('\n') + (alerts.length > 3 ? `\n+${alerts.length - 3} alerta(s)` : '');
   try { new Notification(`netscan — ${alerts.length} alerta(s)`, { body }); } catch (_) {}
 }
@@ -662,7 +672,7 @@ els.devices.addEventListener('change', (e) => {
 
 recount();
 refreshHistory();
-refreshService();
+initPlatform();
 
 els.stop.addEventListener('click', async () => {
   state.monitorOff = true;
@@ -683,6 +693,9 @@ els.stop.addEventListener('click', async () => {
 els.openReport.addEventListener('click', () => {
   if (state.outdir) window.netscan.openPath(state.outdir);
 });
+els.downloadCsv.addEventListener('click', () => {
+  if (state.outdir) window.netscan.openPath(state.outdir + '/relatorio.csv');
+});
 
 els.openHtml.addEventListener('click', () => {
   if (state.outdir) window.netscan.openPath(state.outdir + '/relatorio.html');
@@ -694,7 +707,7 @@ els.exportPdf.addEventListener('click', async () => {
   logLine('[*] Gerando PDF…');
   const res = await window.netscan.exportPdf(state.outdir);
   els.exportPdf.disabled = false;
-  logLine(res && res.ok ? `[+] PDF salvo em ${res.path}` : '[!] ' + ((res && res.error) || 'Falha ao gerar o PDF.'),
+  logLine(res && res.ok ? `[+] ${res.message || `PDF salvo em ${res.path}`}` : '[!] ' + ((res && res.error) || 'Falha ao gerar o PDF.'),
     res && res.ok ? 'ln-accent' : 'ln-danger');
 });
 els.filter.addEventListener('input', applyFilter);
@@ -712,6 +725,7 @@ els.clearLog.addEventListener('click', () => { els.log.innerHTML = ''; });
 els.target.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !state.running) els.start.click(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.pwOverlay.hidden) els.pwCancel.click();
+  else if (e.key === 'Escape' && !els.prefsOverlay.hidden) closePrefs();
   if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && !els.toolbar.hidden) { e.preventDefault(); els.filter.focus(); }
 });
 els.onlyVuln.addEventListener('change', applyFilter);
@@ -719,4 +733,112 @@ els.expandAll.addEventListener('click', () => {
   const nodes = [...els.devices.children].filter((n) => !n.hidden);
   const open = nodes.some((n) => !n.classList.contains('open'));
   nodes.forEach((n) => n.classList.toggle('open', open));
+});
+
+
+// ---- preferências (salvas em settings.json pelo processo principal/servidor) ----
+
+const MODE_HINT = {
+  fast: 'Só portas e serviços — inventário em segundos por aparelho.',
+  normal: 'Serviços + checagens de vulnerabilidade escolhidas por serviço.',
+  deep: 'Todas as 65.535 portas e checagens extras — bem mais lento.',
+};
+let settings = null;
+let saveTimer = null;
+
+function fillPrefs(s) {
+  const sc = s.scan, it = s.integrations;
+  els.target.value = sc.target || '';
+  (modeInputs().find((i) => i.value === sc.mode) || $('modeNormal')).checked = true;
+  els.modeHint.textContent = MODE_HINT[currentMode()];
+  els.sudo.checked = sc.useSudo;
+  els.ports.value = sc.ports; els.exclude.value = sc.exclude; els.workers.value = sc.workers;
+  els.udp.checked = sc.udp; els.noPing.checked = sc.noPing; els.ipv6.checked = sc.ipv6;
+  els.defaultCreds.checked = sc.defaultCreds;
+  if ([...els.compare.options].some((o) => o.value === sc.compare)) els.compare.value = sc.compare;
+  els.schedEvery.value = s.schedule.every;
+  els.webhook.value = it.webhook; els.tgChat.value = it.telegram_chat; els.minLevel.value = it.min_level;
+  els.desktopNotify.checked = it.desktop;
+  // o servidor nunca devolve o token: só diz se há um salvo
+  els.tgToken.value = it.telegram_token || '';
+  els.tgToken.placeholder = it.telegram_token_set ? 'salvo — digite para trocar' : '123456:ABC…';
+}
+
+function collectPrefs() {
+  return {
+    scan: {
+      target: els.target.value.trim(), mode: currentMode(), useSudo: els.sudo.checked,
+      ports: els.ports.value.trim(), exclude: els.exclude.value.trim(),
+      workers: Math.min(16, Math.max(1, parseInt(els.workers.value, 10) || 1)),
+      udp: els.udp.checked, noPing: els.noPing.checked, ipv6: els.ipv6.checked,
+      defaultCreds: els.defaultCreds.checked, compare: els.compare.value,
+    },
+    schedule: { every: Math.min(10080, Math.max(0, parseInt(els.schedEvery.value, 10) || 0)) },
+    integrations: {
+      webhook: els.webhook.value.trim(), telegram_token: els.tgToken.value.trim(),
+      telegram_chat: els.tgChat.value.trim(), min_level: els.minLevel.value, desktop: els.desktopNotify.checked,
+    },
+  };
+}
+
+function savePrefs() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const data = collectPrefs();
+    if (data.schedule.every > 0 && data.schedule.every < 5) data.schedule.every = 5;
+    const res = await window.netscan.saveSettings(data);
+    if (res && res.ok) { settings = res.settings; refreshSchedule(); }
+    else logLine('[!] Não consegui salvar as preferências: ' + ((res && res.error) || 'erro'), 'ln-danger');
+  }, 400);
+}
+
+function openPrefs(tab) {
+  els.prefsOverlay.hidden = false;
+  selectTab(tab || 'scan');
+  refreshSchedule();
+}
+function closePrefs() { els.prefsOverlay.hidden = true; els.prefsBtn.focus(); }
+function selectTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  document.querySelectorAll('.tab-panel').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+}
+
+async function refreshSchedule() {
+  if (window.netscan.platform === 'web') {
+    const info = await window.netscan.info();
+    const sch = info && info.scheduler;
+    els.schedStatus.textContent = sch && sch.every ? `Ativo: a cada ${sch.every} min` + (sch.next ? ` · próxima às ${sch.next}` : '') : 'Desligado.';
+    els.schedStatus.classList.toggle('svc-on', !!(sch && sch.every));
+  } else {
+    refreshService();
+  }
+}
+
+async function initPlatform() {
+  document.body.dataset.platform = window.netscan.platform || 'electron';
+  try { settings = await window.netscan.getSettings(); } catch (_) { settings = null; }
+  if (settings) fillPrefs(settings);
+  refreshSchedule();
+}
+
+els.prefsBtn.addEventListener('click', () => openPrefs());
+els.prefsClose.addEventListener('click', closePrefs);
+els.prefsOverlay.addEventListener('click', (e) => { if (e.target === els.prefsOverlay) closePrefs(); });
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => selectTab(t.dataset.tab)));
+els.prefsOverlay.addEventListener('change', savePrefs);
+els.prefsOverlay.addEventListener('input', (e) => { if (e.target.matches('input[type=text], input[type=url], input[type=password], input[type=number]')) savePrefs(); });
+els.target.addEventListener('change', savePrefs);
+modeInputs().forEach((i) => i.addEventListener('change', () => { els.modeHint.textContent = MODE_HINT[currentMode()]; savePrefs(); }));
+els.logoutBtn.addEventListener('click', () => window.netscan.logout());
+
+els.testNotify.addEventListener('click', async () => {
+  clearTimeout(saveTimer);
+  await window.netscan.saveSettings(collectPrefs()); // testa o que está na tela
+  els.testNotify.disabled = true;
+  els.testResult.textContent = 'Enviando…';
+  const res = await window.netscan.testNotify();
+  els.testNotify.disabled = false;
+  if (res && res.sent && res.sent.length) els.testResult.textContent = `Enviado por: ${res.sent.join(', ')}.`;
+  else if (res && res.errors && res.errors.length) els.testResult.textContent = res.errors.join(' · ');
+  else els.testResult.textContent = 'Nenhuma integração configurada.';
 });

@@ -70,6 +70,8 @@ function buildArgs(opts) {
   if (opts && opts.ipv6) args.push('--ipv6');
   if (opts && opts.workers) args.push('-w', String(parseInt(opts.workers, 10) || 1));
   if (opts && opts.defaultCreds) args.push('--default-creds');
+  // integrações (webhook/Telegram) vêm do settings.json; o próprio app mostra a notificação de desktop
+  if (fs.existsSync(settingsPath())) args.push('--config', settingsPath(), '--notify');
   if (opts && opts.serviceAction === 'uninstall') return [scriptPath(), '--json-stream', '--uninstall-service'];
   if (opts && opts.serviceAction === 'install') {
     return args.concat('--install-service', '--every', String(parseInt(opts.every, 10) || 60));
@@ -97,6 +99,17 @@ function reportFile(name) {
 }
 
 function inventoryPath() { return path.join(workDir(), 'inventario.json'); }
+function settingsPath() { return path.join(workDir(), 'settings.json'); }
+
+// roda o netscan.py com argumentos fixos e devolve o último evento JSON (sem sudo)
+function runPythonEvent(extraArgs) {
+  return new Promise((resolve) => {
+    execFile('python3', [scriptPath(), '--json-stream', ...extraArgs], { cwd: workDir(), timeout: 60000 }, (err, out) => {
+      const lines = String(out || '').trim().split('\n').filter(Boolean);
+      try { resolve(JSON.parse(lines[lines.length - 1])); } catch (_) { resolve({ error: String((err && err.message) || 'sem resposta') }); }
+    });
+  });
+}
 
 // relatorio.json da varredura mais recente em workDir (nomes resultados_<data> ordenam por data)
 function latestReport() {
@@ -254,6 +267,20 @@ ipcMain.handle('scan:start-sudo', async (_evt, opts, password) => {
 });
 
 ipcMain.handle('scan:stop', () => ({ ok: killScan() }));
+
+ipcMain.handle('settings:get', async () => (await runPythonEvent(['--print-settings', '--config', settingsPath()])).settings || null);
+
+ipcMain.handle('settings:set', async (_evt, data) => {
+  // a validação e a gravação (modo 600) ficam no Python, igual ao servidor
+  const tmp = path.join(app.getPath('temp'), `netscan-settings-${process.pid}.json`);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data || {}), { mode: 0o600 });
+    const res = await runPythonEvent(['--save-settings', tmp, '--config', settingsPath()]);
+    return res.settings ? { ok: true, settings: res.settings } : { ok: false, error: res.error || 'falha ao salvar' };
+  } finally { try { fs.unlinkSync(tmp); } catch (_) {} }
+});
+
+ipcMain.handle('notify:test', () => runPythonEvent(['--test-notify', '--config', settingsPath()]));
 
 ipcMain.handle('monitor:stop', () => { monitorPassword = null; return { ok: true }; });
 

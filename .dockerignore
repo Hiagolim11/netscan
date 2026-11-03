@@ -1,0 +1,7 @@
+*
+!netscan.py
+!analysis.py
+!automation.py
+!server.py
+!renderer/
+renderer/node_modules

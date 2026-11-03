@@ -163,7 +163,7 @@ class TestNetscan(unittest.TestCase):
         import argparse
         a = argparse.Namespace(target="192.168.0.0/24", ports=None, exclude="192.168.0.1", fast=True, deep=False,
                                udp=False, ipv6=True, no_ping=False, default_creds=False, offline=False,
-                               workers=4, host_timeout=600)
+                               workers=4, host_timeout=600, config=None)
         self.assertEqual(netscan.service_scan_args(a), ["-t", "192.168.0.0/24", "-x", "192.168.0.1", "--fast",
                                                         "--ipv6", "-w", "4", "--host-timeout", "600"])
 

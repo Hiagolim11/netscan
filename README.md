@@ -2,11 +2,12 @@
 
 **Varredura e análise automática de segurança da sua rede local.** Descobre todos os aparelhos
 conectados, identifica o que cada um é, encontra vulnerabilidades e configurações perigosas,
-prioriza o que corrigir primeiro e avisa quando algo muda — pela interface desktop, pela linha de
-comando ou rodando sozinho em segundo plano.
+prioriza o que corrigir primeiro e avisa quando algo muda — pelo app desktop, pela linha de
+comando, ou instalado num servidor (Docker/**Umbrel**) e acessado de qualquer lugar pelo navegador.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-2496ED?logo=docker&logoColor=white)
 ![nmap](https://img.shields.io/badge/engine-nmap-4682B4)
 ![Plataforma](https://img.shields.io/badge/plataforma-Linux-FCC624?logo=linux&logoColor=black)
 ![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-green)
@@ -25,7 +26,9 @@ comando ou rodando sozinho em segundo plano.
 - [Capturas de tela](#capturas-de-tela)
 - [Como funciona](#como-funciona)
 - [Instalação](#instalação)
+- [Servidor: Docker e Umbrel](#servidor-docker-e-umbrel)
 - [Usando a interface](#usando-a-interface)
+- [Preferências](#preferências)
 - [Usando a linha de comando](#usando-a-linha-de-comando)
 - [Monitoramento em segundo plano](#monitoramento-em-segundo-plano)
 - [Notificações (celular, Discord, Telegram)](#notificações)
@@ -53,7 +56,9 @@ comando ou rodando sozinho em segundo plano.
 | 🏷️ **Tipo de aparelho** | Classifica roteador, câmera, impressora, NAS, TV, IoT, celular, PC Windows/Linux/Mac — com regras de risco por tipo. |
 | 🛠️ **Como corrigir** | Cada achado vem com a correção recomendada, em linguagem direta. |
 | 🔔 **Alertas** | Aparelho desconhecido, porta sensível nova, falha grave nova, certificado vencendo — por notificação, webhook ou Telegram. |
-| ⏱️ **Roda sozinho** | Serviço do **systemd** que varre a cada X minutos, mesmo com o app fechado. |
+| ⏱️ **Roda sozinho** | Varredura agendada no servidor (Docker/Umbrel) ou pelo **systemd** no desktop, mesmo com o app fechado. |
+| 🖥️ **Acesso remoto** | Instale num servidor da sua rede e use a mesma interface pelo navegador, com login por senha. |
+| ⚙️ **Preferências** | Tudo configurável numa janela só — varredura, agendamento e integrações (webhook/Telegram, com botão de teste). |
 | 📒 **Inventário** | Primeira/última vez que cada aparelho foi visto, histórico por aparelho e lista de aparelhos confiáveis. |
 | 📄 **Relatórios** | TXT, HTML, CSV, JSON e **PDF**, com comparação entre varreduras. |
 
@@ -68,10 +73,10 @@ KEV/EPSS, nível de confiança e correção:
 
 ![Detalhe de um dispositivo](docs/tela-dispositivo.png)
 
-**Opções avançadas** — portas, exclusões, paralelismo, UDP, IPv6, senhas padrão, comparação e
-monitoramento:
+**Preferências** — varredura, agendamento e integrações (webhook, Telegram, nível mínimo do
+alerta e envio de teste):
 
-![Opções avançadas](docs/tela-opcoes.png)
+![Preferências](docs/tela-preferencias.png)
 
 > As capturas usam dados de demonstração.
 
@@ -135,7 +140,7 @@ git clone https://github.com/Hiagolim11/netscan.git
 cd netscan
 npm install
 npm run dist                                   # gera dist/netscan-<versão>.deb e .AppImage
-sudo apt install ./dist/netscan-1.2.0.deb      # o .deb já declara nmap e python3 como dependências
+sudo apt install ./dist/netscan-1.3.0.deb      # o .deb já declara nmap e python3 como dependências
 ```
 
 Depois é só abrir **netscan** pelo menu de aplicativos.
@@ -149,8 +154,8 @@ git pull && npm install && npm run dist && sudo apt install ./dist/netscan-<nova
 ### AppImage
 
 ```bash
-chmod +x dist/netscan-1.2.0.AppImage
-./dist/netscan-1.2.0.AppImage
+chmod +x dist/netscan-1.3.0.AppImage
+./dist/netscan-1.3.0.AppImage
 ```
 
 ### A partir do código-fonte
@@ -164,15 +169,87 @@ A linha de comando não precisa de instalação: `python3 netscan.py --help`.
 
 ---
 
+## Servidor: Docker e Umbrel
+
+Rode o netscan num aparelho que fica sempre ligado na sua rede (Umbrel, Raspberry Pi, NAS, mini
+PC) e acesse a interface de qualquer computador ou celular pelo navegador. A varredura agendada e
+os alertas funcionam sem nenhum app aberto.
+
+```
+navegador ──HTTP──▶ servidor (container netscan, rede do host) ──nmap──▶ aparelhos da LAN
+                          │
+                          └── alertas ──▶ ntfy · Discord · Slack · Telegram
+```
+
+### Umbrel
+
+1. No Umbrel, abra **App Store → ⋯ → Community App Stores** e adicione o repositório da loja do
+   netscan (os arquivos estão em [`umbrel/`](umbrel/); veja abaixo como publicá-la).
+2. Instale **netscan**. A senha de acesso aparece na página do app (o Umbrel a gera).
+3. Abra `http://umbrel.local:7765`.
+
+O app usa a rede do host (como o Home Assistant no Umbrel) para enxergar a LAN, por isso abre
+direto na porta 7765 e tem login próprio.
+
+> A loja comunitária precisa estar num repositório próprio: copie o conteúdo de `umbrel/` para a
+> raiz de um repositório público (ex.: `umbrel-app-store`) e adicione a URL dele no Umbrel.
+
+### Docker Compose (qualquer servidor Linux)
+
+```bash
+git clone https://github.com/Hiagolim11/netscan.git && cd netscan
+NETSCAN_PASSWORD='uma-senha-forte' docker compose up -d
+```
+
+Abra `http://IP-DO-SERVIDOR:7765`. Sem `NETSCAN_PASSWORD`, uma senha aleatória é gerada no
+primeiro início — veja com `docker logs netscan`.
+
+Ou só com `docker run`:
+
+```bash
+docker run -d --name netscan --network host --cap-add NET_RAW --cap-add NET_ADMIN \
+  -e NETSCAN_PASSWORD='uma-senha-forte' -v netscan-data:/data --restart unless-stopped \
+  ghcr.io/hiagolim11/netscan:latest
+```
+
+| Requisito | Por quê |
+|---|---|
+| `network_mode: host` | sem isso o container só enxerga a rede interna do Docker |
+| `cap_add: NET_RAW, NET_ADMIN` | ARP, detecção de SO e varredura SYN usam sockets brutos — sem elas o nmap não executa |
+| volume em `/data` | varreduras, inventário, preferências e cache do KEV/EPSS |
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `NETSCAN_PASSWORD` | gerada | senha da interface |
+| `NETSCAN_PORT` | `7765` | porta HTTP |
+| `NETSCAN_BIND` | `0.0.0.0` | endereço de escuta (use `127.0.0.1` atrás de um proxy reverso) |
+| `NETSCAN_KEEP` | `100` | quantas varreduras manter |
+| `TZ` | — | fuso horário dos relatórios (ex.: `America/Sao_Paulo`) |
+
+A imagem (base Kali, `amd64` e `arm64`) traz `nmap` e `exploitdb` atualizados. Para uma imagem
+menor, sem exploits: `docker build --build-arg WITH_EXPLOITDB=false -t netscan .`
+
+**Diferenças da versão web:** não há sudo (o container já roda como root), o agendamento é feito
+pelo próprio servidor (*Preferências → Agendamento*) e o PDF é gerado pelo navegador
+(*Exportar PDF* abre a impressão → "Salvar como PDF").
+
+> [!IMPORTANT]
+> Não exponha a porta 7765 na internet. Para acesso de fora de casa, use VPN (Tailscale,
+> WireGuard) — no Umbrel, o app do Tailscale resolve isso.
+
+---
+
 ## Usando a interface
+
+O painel lateral tem só o essencial; todo o resto fica em [Preferências](#preferências) (⚙️ no
+canto superior direito).
 
 1. **Alvo** — deixe vazio para varrer todas as suas sub-redes, ou informe IP, CIDR, faixa ou
    vários separados por vírgula (`192.168.0.0/24, 10.0.0.5`). <kbd>Enter</kbd> inicia.
-2. **Modo** — *Rápido* (só serviços), padrão (serviços + checagens) ou *Profunda* (todas as
-   65.535 portas + scripts extras).
-3. **sudo** — se o sistema pedir senha, uma janela a solicita (veja
-   [Segurança do próprio app](#segurança-do-próprio-app)).
-4. **Iniciar varredura** — os aparelhos aparecem conforme são encontrados, com a fase e o tempo
+2. **Modo** — *Rápido* (só portas e serviços), *Padrão* (serviços + checagens escolhidas por
+   serviço) ou *Profundo* (todas as 65.535 portas + checagens extras).
+3. **Iniciar varredura** — no app desktop, se o sudo pedir senha, uma janela a solicita (veja
+   [Segurança do próprio app](#segurança-do-próprio-app)). — os aparelhos aparecem conforme são encontrados, com a fase e o tempo
    restante de cada um e uma barra de progresso geral.
 
 Ao terminar:
@@ -191,14 +268,30 @@ desconhecido) · Apelido/nota livre (ex.: "TV da sala").
 **Barra de ferramentas:** filtro por IP, nome, tipo, serviço, CVE ou apelido (<kbd>/</kbd> foca o
 filtro) · só com vulnerabilidades · expandir/recolher tudo.
 
-**Painel lateral:**
+**Painel lateral:** alvo, modo, iniciar/parar, **histórico** (todas as varreduras salvas,
+inclusive as agendadas — clique para reabrir) e **registro**.
 
-- **Opções avançadas** — portas, exclusões, hosts em paralelo, UDP, sem ping (`-Pn`), IPv6,
-  testar senhas padrão, comparar com qualquer varredura do histórico, repetir a cada N minutos
-  (com o app aberto) e o **monitoramento em segundo plano** (com o app fechado).
-- **Histórico** — todas as varreduras salvas, inclusive as feitas pelo serviço; clique para
-  reabrir.
-- **Relatório** — abrir o HTML, **exportar PDF** ou abrir a pasta.
+**Relatório:** abrir o HTML, **exportar PDF**, abrir a pasta (desktop) ou baixar o CSV (web).
+
+Na versão web, quem abre a página no meio de uma varredura — ou depois de uma agendada — vê o
+andamento e o último resultado na hora.
+
+---
+
+## Preferências
+
+Tudo fica salvo automaticamente em `settings.json` (permissão `600`), e vale tanto para as
+varreduras manuais quanto para as agendadas.
+
+| Aba | Opções |
+|---|---|
+| **Varredura** | usar sudo (desktop) · portas · exclusões · aparelhos em paralelo · comparar com (anterior, nenhuma ou qualquer do histórico) · UDP · sem ping · IPv6 · testar senhas padrão |
+| **Agendamento** | desktop: repetir com o app aberto e monitoramento em segundo plano (systemd) · servidor: varrer automaticamente a cada N min |
+| **Integrações** | webhook (ntfy, Discord, Slack) · token e chat do Telegram · avisar a partir de (crítico/alto/médio/baixo) · notificações na área de trabalho (desktop) · **enviar notificação de teste** |
+
+O botão de teste envia uma mensagem real por cada canal configurado e mostra o motivo de qualquer
+falha (URL errada, token inválido…). No servidor, o token do Telegram nunca volta ao navegador:
+o campo mostra só que há um token salvo.
 
 ---
 
@@ -251,8 +344,10 @@ inválida · `130` interrompido.
 O netscan pode se instalar como um **timer do systemd**: a varredura roda periodicamente mesmo com
 o app fechado, compara com a anterior, atualiza o inventário e envia os alertas.
 
-**Pela interface:** *Opções avançadas → Monitoramento em segundo plano → a cada N min → Ativar*.
-As opções de varredura escolhidas no painel são usadas pelo serviço.
+**Pela interface:** *Preferências → Agendamento → Monitoramento em segundo plano → a cada N min →
+Ativar*. O serviço usa as opções da aba Varredura e as integrações configuradas na interface.
+
+> Usando Docker/Umbrel? Lá o agendamento é interno — veja [Servidor](#servidor-docker-e-umbrel).
 
 **Pela linha de comando:**
 
@@ -278,9 +373,14 @@ Desinstalar remove o serviço e o timer, mas mantém os resultados e o `/etc/net
 
 ## Notificações
 
-Os alertas podem ser enviados por qualquer combinação dos canais abaixo. Eles são configurados por
-**variáveis de ambiente** — nunca na linha de comando, que fica visível no `ps`. No serviço, edite
-`/etc/netscan.env`:
+Os alertas podem ser enviados por qualquer combinação de canais: **webhook** (ntfy no celular,
+Discord ou Slack) e **Telegram**.
+
+**O jeito mais fácil:** *Preferências → Integrações*, preencha e clique em **Enviar notificação de
+teste**. Vale para o app desktop, o serviço do systemd e o servidor Docker/Umbrel.
+
+**Sem interface** (CLI ou serviço instalado à mão), use variáveis de ambiente — nunca a linha de
+comando, que fica visível no `ps`. No serviço, edite `/etc/netscan.env`:
 
 ```ini
 # Celular via ntfy (app gratuito para Android/iOS): assine o tópico no app
@@ -294,9 +394,8 @@ NETSCAN_TELEGRAM_TOKEN=123456:ABC...
 NETSCAN_TELEGRAM_CHAT=987654321
 ```
 
-Na linha de comando, exporte as mesmas variáveis e use `--notify`. Numa sessão gráfica, sem root,
-o alerta também aparece como notificação da área de trabalho. Na interface, os alertas sempre
-aparecem como notificação do sistema.
+Na linha de comando, exporte as mesmas variáveis (ou passe `--config settings.json`) e use
+`--notify`; `--test-notify` envia uma mensagem de teste. `NETSCAN_MIN_LEVEL` define o nível mínimo.
 
 **Quando um alerta é gerado:**
 
@@ -460,6 +559,10 @@ Nenhum IP, MAC ou nome da sua rede é enviado. `--offline` desliga KEV/EPSS. O E
   aparelhos na fila comecem.
 - **Senhas padrão desligadas por padrão:** o teste de logins de fábrica só roda se você marcar a
   opção, porque pode gerar alertas em sistemas de monitoramento ou bloquear contas.
+- **Servidor web:** login obrigatório (comparação em tempo constante e atraso a cada senha errada),
+  cookie de sessão `HttpOnly` + `SameSite=Strict`, cabeçalho próprio exigido em toda escrita
+  (proteção contra CSRF), arquivos servidos só de dentro das pastas permitidas, e o token do
+  Telegram nunca sai do servidor. `settings.json` e a senha gerada ficam com permissão `600`.
 
 ---
 
@@ -467,36 +570,44 @@ Nenhum IP, MAC ou nome da sua rede é enviado. `--offline` desliga KEV/EPSS. O E
 
 ```
 netscan/
-├── netscan.py          # backend/CLI: descoberta, fases de varredura, achados, relatórios
-├── analysis.py         # KEV/EPSS, confiança, nota de risco, tipo de aparelho, resumo
-├── automation.py       # inventário, alertas, notificações, serviço do systemd
-├── main.js             # processo principal do Electron (spawn, sudo, IPC, PDF)
-├── preload.js          # ponte segura entre a interface e o processo principal
-├── renderer/           # interface: index.html, renderer.js, styles.css
-├── test_netscan.py     # testes do backend
-├── test_analysis.py    # testes da análise
-├── test_automation.py  # testes da automação
-├── docs/               # capturas de tela
-└── build/icon.png      # ícone do app
+├── netscan.py            # backend/CLI: descoberta, fases de varredura, achados, relatórios
+├── analysis.py           # KEV/EPSS, confiança, nota de risco, tipo de aparelho, resumo
+├── automation.py         # inventário, alertas, notificações, preferências, serviço do systemd
+├── server.py             # servidor web (Docker/Umbrel): login, API, eventos ao vivo, agendamento
+├── main.js / preload.js  # app desktop (Electron): spawn do backend, sudo, IPC, PDF
+├── renderer/             # interface única para desktop e navegador
+│   ├── index.html · renderer.js · styles.css
+│   ├── web-bridge.js     # no navegador, implementa a mesma API do preload via HTTP + SSE
+│   └── login.html · login.js
+├── Dockerfile · docker-compose.yml
+├── umbrel/               # loja comunitária do Umbrel (umbrel-app-store.yml + app)
+├── .github/workflows/    # build e publicação da imagem multi-arquitetura no GHCR
+├── test_*.py             # testes (backend, análise, automação, servidor)
+└── docs/                 # capturas de tela
 ```
 
-O backend usa **só a biblioteca padrão do Python**. A interface conversa com ele por um fluxo de
-eventos JSON (`--json-stream`): `start`, `phase`, `discovery`, `host_start`, `host_progress`,
-`host_done`, `done`, `service`, `aborted`, `fatal`.
+O backend e o servidor usam **só a biblioteca padrão do Python**. A interface conversa com o
+backend por um fluxo de eventos JSON (`--json-stream`): `start`, `phase`, `discovery`,
+`host_start`, `host_progress`, `host_done`, `done`, `service`, `aborted`, `fatal`. No desktop, os
+eventos chegam por IPC; no navegador, por Server-Sent Events (`/api/events`).
 
 ---
 
 ## Desenvolvimento e testes
 
 ```bash
-python3 -m unittest test_netscan test_analysis test_automation    # 34 testes, sem rede e sem root
-npm start                                                         # interface em modo desenvolvimento
-npm run dist                                                      # gera .deb e .AppImage em dist/
+python3 -m unittest test_netscan test_analysis test_automation test_server   # 42 testes, sem root
+npm start                                                                    # app desktop em modo desenvolvimento
+npm run dist                                                                 # gera .deb e .AppImage em dist/
+NETSCAN_DATA=./dev-data NETSCAN_PASSWORD=teste python3 server.py             # versão web em http://localhost:7765
+docker build -t netscan . && docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN -e NETSCAN_PASSWORD=teste netscan
 ```
 
 Os testes cobrem a leitura do XML do nmap, a seleção adaptativa de checagens, os achados de
 configuração, a nota de risco e o KEV/EPSS (com cache falso), o tipo de aparelho, o inventário, as
-regras de alerta, as unidades do systemd e o envio de webhook (servidor local).
+regras de alerta, as preferências, as unidades do systemd, o envio de webhook (servidor local) e
+o servidor web de ponta a ponta (login, CSRF, token oculto, caminhos confinados e uma varredura
+real de `127.0.0.1` acompanhada pelos eventos ao vivo).
 
 ---
 
@@ -540,6 +651,20 @@ o nmap conseguiu identificar.
 - Veja o log: `journalctl -u netscan.service -e` — a linha "Alertas enviados por: …" mostra os
   canais usados.
 - Lembre que só **mudanças** geram alerta; na primeira execução, o inventário é só criado.
+</details>
+
+<details>
+<summary><b>Docker: "o nmap está instalado mas não executa"</b></summary>
+
+Faltam as capabilities: adicione `cap_add: [NET_RAW, NET_ADMIN]` (ou `--cap-add NET_RAW --cap-add
+NET_ADMIN`). O container também precisa de `network_mode: host` para enxergar a sua rede.
+</details>
+
+<details>
+<summary><b>Docker: esqueci a senha</b></summary>
+
+Se ela foi gerada automaticamente: `docker exec netscan cat /data/.password`. Para trocar, defina
+`NETSCAN_PASSWORD` e recrie o container. No Umbrel, a senha está na página do app.
 </details>
 
 <details>

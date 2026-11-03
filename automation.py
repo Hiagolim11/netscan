@@ -115,15 +115,24 @@ def _post(url, body, content_type):
         r.read()
 
 
-def notify(alerts, summary_line="", log=None):
-    """Envia os alertas pelos canais configurados no ambiente. Falha de envio só é registrada."""
+LEVEL_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def notify(alerts, summary_line="", log=None, config=None):
+    """Envia os alertas pelos canais configurados. Falha de envio só é registrada.
+    config: bloco "integrations" do settings.json; sem ele, usa as variáveis de ambiente."""
     log = log or (lambda msg, level="*": None)
+    cfg = config or {}
+    hook = cfg.get("webhook") or os.environ.get("NETSCAN_WEBHOOK")
+    token = cfg.get("telegram_token") or os.environ.get("NETSCAN_TELEGRAM_TOKEN")
+    chat = cfg.get("telegram_chat") or os.environ.get("NETSCAN_TELEGRAM_CHAT")
+    min_level = cfg.get("min_level") or os.environ.get("NETSCAN_MIN_LEVEL") or "low"
+    alerts = [a for a in alerts or [] if LEVEL_ORDER.get(a.get("level"), 9) <= LEVEL_ORDER.get(min_level, 3)]
     if not alerts:
         return []
     text = "netscan — " + (summary_line or f"{len(alerts)} alerta(s)") + "\n" + "\n".join(
         f"• [{a['level'].upper()}] {a['text']}" for a in alerts[:15])
     sent = []
-    hook = os.environ.get("NETSCAN_WEBHOOK")
     if hook:
         try:
             if "ntfy" in hook:  # ntfy mostra o corpo como texto puro
@@ -133,7 +142,6 @@ def notify(alerts, summary_line="", log=None):
             sent.append("webhook")
         except (OSError, ValueError) as e:
             log(f"Falha ao enviar webhook: {e}", "~")
-    token, chat = os.environ.get("NETSCAN_TELEGRAM_TOKEN"), os.environ.get("NETSCAN_TELEGRAM_CHAT")
     if token and chat:
         try:
             url = f"https://api.telegram.org/bot{urllib.parse.quote(token, safe=':')}/sendMessage"
@@ -142,13 +150,66 @@ def notify(alerts, summary_line="", log=None):
             sent.append("telegram")
         except (OSError, ValueError) as e:
             log(f"Falha ao enviar Telegram: {type(e).__name__}", "~")  # sem a URL: ela contém o token
-    if shutil.which("notify-send") and os.environ.get("DISPLAY") and os.geteuid() != 0:
+    # com config (app/servidor), a notificação de desktop é feita pela própria interface
+    if config is None and shutil.which("notify-send") and os.environ.get("DISPLAY") and os.geteuid() != 0:
         try:
             subprocess.run(["notify-send", "-a", "netscan", "netscan", text[:500]], timeout=5, check=False)
             sent.append("desktop")
         except (OSError, subprocess.SubprocessError):
             pass
     return sent
+
+
+# ---------------- configurações (settings.json) ----------------
+
+SETTINGS_FILE = "settings.json"
+DEFAULT_SETTINGS = {
+    "scan": {"target": "", "mode": "normal", "useSudo": True, "ports": "", "exclude": "", "workers": 2, "udp": False,
+             "noPing": False, "ipv6": False, "defaultCreds": False, "compare": "latest"},
+    "schedule": {"every": 0},
+    "integrations": {"webhook": "", "telegram_token": "", "telegram_chat": "", "min_level": "medium",
+                     "desktop": True},
+}
+
+
+def load_settings(path=SETTINGS_FILE):
+    """Configurações salvas, completadas com os padrões (arquivo ausente ou inválido = padrões)."""
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    out = {}
+    for section, defaults in DEFAULT_SETTINGS.items():
+        got = saved.get(section) if isinstance(saved.get(section), dict) else {}
+        out[section] = {k: got.get(k, v) for k, v in defaults.items()}
+    return out
+
+
+def save_settings(data, path=SETTINGS_FILE):
+    """Mescla com o que já está salvo e grava só chaves conhecidas, com permissão 600
+    (o arquivo guarda o token do Telegram)."""
+    clean = load_settings(path)
+    for section, defaults in DEFAULT_SETTINGS.items():
+        for k, v in (data.get(section) or {}).items():
+            if k not in defaults:
+                continue
+            d = defaults[k]
+            # bool é subclasse de int no Python: confere os dois separadamente
+            ok = isinstance(v, bool) if isinstance(d, bool) else isinstance(v, type(d)) and not isinstance(v, bool)
+            if ok:
+                clean[section][k] = v
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(clean, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
+    return clean
+
+
+def has_integrations(settings):
+    i = settings.get("integrations", {})
+    return bool(i.get("webhook") or (i.get("telegram_token") and i.get("telegram_chat")))
 
 
 # ---------------- serviço do systemd ----------------

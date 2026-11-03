@@ -3,6 +3,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('netscan', {
+  platform: 'electron',
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (data) => ipcRenderer.invoke('settings:set', data),
+  testNotify: () => ipcRenderer.invoke('notify:test'),
+  info: async () => ({}),
+  logout: () => {},
   start: (opts) => ipcRenderer.invoke('scan:start', opts),
   startSudo: (opts, password) => ipcRenderer.invoke('scan:start-sudo', opts, password),
   stop: () => ipcRenderer.invoke('scan:stop'),

@@ -136,5 +136,29 @@ class TestNotify(unittest.TestCase):
             self.assertEqual(automation.notify([{"level": "low", "ip": "x", "text": "t"}]), [])
 
 
+class TestSettings(unittest.TestCase):
+    def test_merge_validate_and_permissions(self):
+        path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        automation.save_settings({"scan": {"workers": 4}, "schedule": {"every": 30}}, path)
+        # atualização parcial não apaga as outras seções; tipos errados e chaves estranhas são ignorados
+        s = automation.save_settings({"integrations": {"webhook": "https://ntfy.sh/x", "desktop": "sim"},
+                                      "scan": {"udp": 1, "workers": True}, "outra": {"x": 1}}, path)
+        self.assertEqual((s["scan"]["workers"], s["schedule"]["every"]), (4, 30))
+        self.assertEqual(s["integrations"]["webhook"], "https://ntfy.sh/x")
+        self.assertTrue(s["integrations"]["desktop"])   # "sim" não é bool: mantém o padrão
+        self.assertFalse(s["scan"]["udp"])              # 1 não é bool
+        self.assertNotIn("outra", automation.load_settings(path))
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertTrue(automation.has_integrations(s))
+
+    def test_min_level_filter(self):
+        got = []
+        with mock.patch.object(automation, "_post", lambda url, body, ct: got.append(body)):
+            sent = automation.notify([{"level": "low", "ip": "x", "text": "baixo"}], config={"webhook": "http://h", "min_level": "high"})
+            self.assertEqual((sent, got), ([], []))
+            sent = automation.notify([{"level": "critical", "ip": "x", "text": "grave"}], config={"webhook": "http://h", "min_level": "high"})
+            self.assertEqual(sent, ["webhook"])
+
+
 if __name__ == "__main__":
     unittest.main()

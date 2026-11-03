@@ -17,3 +17,7 @@ resultados_*/
 rescan_*/
 inventario.json
 inventario.json.tmp
+settings.json
+settings.json.tmp
+netscan-data/
+dev-data/

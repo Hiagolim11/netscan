@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+  <title>netscan — entrar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="login-page">
+  <form id="loginForm" class="modal login-box" autocomplete="on">
+    <div class="word">netscan</div>
+    <p class="modal-sub">Análise de segurança da rede. Digite a senha de acesso.</p>
+    <input id="password" class="pw-input" type="password" placeholder="senha" autocomplete="current-password" required autofocus />
+    <div id="loginError" class="pw-error" hidden></div>
+    <div class="modal-actions">
+      <button type="submit" id="loginBtn" class="btn btn-go">Entrar</button>
+    </div>
+    <div class="modal-note">No Umbrel, a senha aparece na página do app. Em outros servidores, é a variável NETSCAN_PASSWORD (ou a senha gerada que aparece no log do container).</div>
+  </form>
+  <script src="login.js"></script>
+</body>
+</html>

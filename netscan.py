@@ -100,6 +100,17 @@ def check_prereqs():
         log("nmap não encontrado. Instale com: sudo apt install nmap", "!")
         emit("fatal", error="nmap não encontrado. Instale com: sudo apt install nmap")
         sys.exit(1)
+    try:
+        ok = subprocess.run(["nmap", "--version"], capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    if not ok:
+        # típico de container sem as capabilities que o binário do nmap exige
+        msg = ("O nmap está instalado mas não executa (Operation not permitted). Em Docker, "
+               "adicione cap_add: NET_RAW e NET_ADMIN ao container.")
+        log(msg, "!")
+        emit("fatal", error=msg)
+        sys.exit(1)
 
 
 def validate_target(target):
@@ -1059,6 +1070,8 @@ def service_scan_args(args):
         if on:
             out.append(flag)
     out += ["-w", str(args.workers), "--host-timeout", str(args.host_timeout)]
+    if args.config:  # integrações configuradas na interface valem também para o serviço
+        out += ["--config", os.path.abspath(args.config)]
     return out
 
 
@@ -1083,6 +1096,10 @@ def main():
     parser.add_argument("--offline", action="store_true", help="Não baixa CISA KEV/EPSS (usa só o cache local).")
     parser.add_argument("--compare", help="relatorio.json de uma varredura anterior (ou 'latest' para a mais recente) para mostrar o que mudou.")
     parser.add_argument("--pdf", action="store_true", help="Também gera relatorio.pdf (usa Chromium/Chrome ou WeasyPrint).")
+    parser.add_argument("--config", help="settings.json com as integrações (webhook/Telegram) usadas por --notify.")
+    parser.add_argument("--print-settings", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--save-settings", metavar="JSON", help=argparse.SUPPRESS)
+    parser.add_argument("--test-notify", action="store_true", help="Envia uma notificação de teste pelos canais configurados e sai.")
     parser.add_argument("--notify", action="store_true", help="Envia os alertas (webhook/Telegram/desktop, configurados por variáveis de ambiente).")
     parser.add_argument("--keep", type=int, default=0, help="Mantém só as N varreduras mais recentes na pasta atual (0 = todas).")
     parser.add_argument("--install-service", action="store_true", help="Instala o monitoramento periódico no systemd (root) com as opções de varredura dadas.")
@@ -1097,12 +1114,39 @@ def main():
     signal.signal(signal.SIGTERM, _terminate)
     signal.signal(signal.SIGINT, _terminate)
 
-    check_prereqs()
-
     def fatal(msg, code=2):
         log(msg, "!")
         emit("fatal", error=msg)
         sys.exit(code)
+
+    if args.print_settings or args.save_settings:  # usado pela interface desktop
+        path = args.config or automation.SETTINGS_FILE
+        if args.save_settings:
+            try:
+                with open(args.save_settings) as f:
+                    automation.save_settings(json.load(f), path)
+            except (OSError, ValueError) as e:
+                fatal(f"Configurações inválidas: {e}", 2)
+        emit("settings", settings=automation.load_settings(path))
+        return
+
+    integrations = automation.load_settings(args.config)["integrations"] if args.config else None
+    if args.test_notify:
+        test = [{"level": "critical", "ip": "-", "text": "Teste de notificação: se você está lendo isto, a integração funciona."}]
+        cfg = dict(integrations or {}, min_level="low", desktop=False)
+        errors = []
+        def collect(msg, level="*"):
+            errors.append(msg)
+            log(msg, level)
+        sent = automation.notify(test, "teste", collect, cfg if integrations is not None else None)
+        if sent:
+            log(f"Teste enviado por: {', '.join(sent)}.", "+")
+        elif not errors:
+            log("Nenhuma integração configurada.", "~")
+        emit("notify_test", sent=sent, errors=errors)
+        return
+
+    check_prereqs()
 
     if args.ports and not PORTS_RE.match(args.ports):
         fatal("Portas inválidas. Ex.: 22,80,443 ou 1-1024 ou T:80,U:53.")
@@ -1232,7 +1276,7 @@ def main():
     for a in alerts:
         log(f"ALERTA [{a['level']}] {a['text']}", "!")
     if args.notify and alerts:
-        sent = automation.notify(alerts, f"risco {an['label']} ({an['risk']}/100), {len(alerts)} alerta(s)", log)
+        sent = automation.notify(alerts, f"risco {an['label']} ({an['risk']}/100), {len(alerts)} alerta(s)", log, integrations)
         log(f"Alertas enviados por: {', '.join(sent) or 'nenhum canal configurado'}.", "+")
     totals = write_report(target, hosts, outdir, diff, an, alerts)
     if args.pdf:

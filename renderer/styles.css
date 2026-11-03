@@ -360,9 +360,6 @@ body { display: flex; flex-direction: column; }
 }
 
 /* ---- Opções avançadas / filtro / ações ---- */
-.adv { margin: 4px 0 14px; }
-.adv summary { cursor: pointer; font-size: 14px; color: var(--ink-dim); margin-bottom: 14px; }
-.adv summary:hover { color: var(--ink); }
 
 .toolbar { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
 .toolbar input[type="search"] { flex: 1; min-width: 220px; width: auto; }
@@ -423,7 +420,6 @@ body { display: flex; flex-direction: column; }
 ::-webkit-scrollbar-thumb { background: var(--surface-2); border: 2px solid var(--ground); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #2f343e; }
 ::-webkit-scrollbar-corner { background: transparent; }
-.adv { margin-top: 18px; }
 .btn { white-space: nowrap; }
 .actions .btn-stop { flex: none; }
 /* zero não é alarme: vermelho só quando há achado */
@@ -485,3 +481,57 @@ body { display: flex; flex-direction: column; }
 .svc-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .history-meta i { color: var(--accent); font-style: normal; }
 .check-warn span { color: var(--sev-medium); }
+
+/* ---- Plataforma: desktop x web ---- */
+body[data-platform="web"] .only-electron, body:not([data-platform="web"]) .only-web { display: none !important; }
+
+/* ---- Barra superior ---- */
+.bar-meta { align-items: center; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  background: transparent; border: 0; border-radius: var(--r); color: var(--ink-dim); cursor: pointer; font-size: 15px;
+}
+.icon-btn:hover { background: var(--surface); color: var(--ink); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); }
+
+/* ---- Modo (segmentado) ---- */
+.seg { display: flex; background: var(--surface); border-radius: var(--r); padding: 3px; gap: 3px; }
+.seg label { flex: 1; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span {
+  display: block; text-align: center; font-size: 13px; padding: 7px 0; border-radius: 2px;
+  color: var(--ink-dim); cursor: pointer; user-select: none;
+}
+.seg input:checked + span { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); }
+.seg input:disabled + span { opacity: .5; cursor: not-allowed; }
+
+/* ---- Preferências ---- */
+.modal-wide { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; padding: 0; }
+.prefs-head { display: flex; justify-content: space-between; align-items: center; padding: 22px 24px 8px; }
+.prefs-head .modal-title { margin: 0; }
+.tabs { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--surface-2); }
+.tab {
+  background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-dim);
+  font: inherit; font-size: 14px; padding: 10px 10px; cursor: pointer; margin-bottom: -1px;
+}
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.tab:focus-visible { outline: 2px solid var(--accent); }
+.tab-panel { padding: 20px 24px 8px; overflow-y: auto; min-height: 380px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+@media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+.field input[type="url"], .field input[type="password"] {
+  width: 100%; background: var(--ground); color: var(--ink); border: 1px solid var(--surface-2);
+  border-radius: var(--r); padding: 10px 12px; font-family: var(--mono); font-size: 14px;
+}
+.modal .field input[type="text"], .modal .field input[type="number"], .modal .field select { background: var(--ground); }
+.modal .svc-row input { background: var(--ground); }
+.test-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 4px; }
+.test-row .field-hint { margin: 0; }
+.prefs-foot { padding: 12px 24px 18px; font-size: 12px; color: var(--ink-faint); border-top: 1px solid var(--surface-2); }
+.modal .svc { border-top: 0; padding-top: 8px; }
+
+/* ---- Login (versão web) ---- */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+.login-box { display: flex; flex-direction: column; gap: 4px; }
+.login-box .word { margin-bottom: 6px; }
