@@ -50,7 +50,7 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(dt({"ip": "a", "ports": [{"port": "9100"}]}), "printer")
         self.assertEqual(dt({"ip": "a", "ports": [{"port": "554", "service": "rtsp"}]}), "camera")
         self.assertEqual(dt({"ip": "a", "ports": [{"port": "445"}]}), "windows")
-        self.assertEqual(dt({"ip": "a", "ports": [], "mac": "72:20:B4:B6:69:AB"}), "phone")  # MAC aleatório
+        self.assertEqual(dt({"ip": "a", "ports": [], "mac": "72:00:5E:00:00:02"}), "phone")  # MAC aleatório
         self.assertEqual(dt({"ip": "a", "ports": [], "vendor": "Apple"}), "phone")
         self.assertEqual(dt({"ip": "a", "ports": [{"port": "22"}], "mac": "00:11:22:33:44:55"}), "linux")
         self.assertEqual(dt({"ip": "a", "ports": [], "mac": "00:11:22:33:44:55"}), "unknown")

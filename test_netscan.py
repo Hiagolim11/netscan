@@ -27,10 +27,10 @@ class TestNetscan(unittest.TestCase):
         new = [
             {"ip": "10.0.0.1", "ports": [{"port": "22", "proto": "tcp"}, {"port": "80", "proto": "tcp"}],
              "vulns": []},
-            {"ip": "10.0.0.3", "ports": [], "vulns": []},
+            {"ip": "192.0.2.3", "ports": [], "vulns": []},
         ]
         d = netscan.diff_reports(old, new)
-        self.assertEqual(d["new_hosts"], ["10.0.0.3"])
+        self.assertEqual(d["new_hosts"], ["192.0.2.3"])
         self.assertEqual(d["gone_hosts"], ["10.0.0.2"])
         self.assertEqual(d["changed"]["10.0.0.1"], {
             "new_ports": ["80/tcp"], "closed_ports": [],
@@ -99,12 +99,12 @@ class TestNetscan(unittest.TestCase):
         self.assertTrue(r({"id": "algo-desconhecido"}))
 
     def test_merge_ipv6(self):
-        hosts = [{"ip": "192.168.0.1", "mac": "02:10:18:AE:49:14"}]
-        found = [{"ip": "2804::1", "mac": "02:10:18:ae:49:14"},
+        hosts = [{"ip": "192.168.0.1", "mac": "02:00:5E:00:00:01"}]
+        found = [{"ip": "2001:db8::1", "mac": "02:00:5e:00:00:01"},
                  {"ip": "fe80::5", "mac": "AA:BB:CC:DD:EE:FF"},
-                 {"ip": "2804::1", "mac": "02:10:18:AE:49:14"}]
+                 {"ip": "2001:db8::1", "mac": "02:00:5E:00:00:01"}]
         netscan.merge_ipv6(hosts, found, "wlan0")
-        self.assertEqual(hosts[0]["ipv6"], ["2804::1"])  # mesmo aparelho, sem duplicar
+        self.assertEqual(hosts[0]["ipv6"], ["2001:db8::1"])  # mesmo aparelho, sem duplicar
         self.assertEqual(hosts[1]["ip"], "fe80::5%wlan0")  # só IPv6: vira host, com interface
         self.assertEqual(len(hosts), 2)
 
@@ -170,19 +170,19 @@ class TestNetscan(unittest.TestCase):
     def test_detect_subnets_ignores_virtual(self):
         from unittest import mock
         umbrel = """1: lo    inet 127.0.0.1/8 scope host lo
-2: enp2s0    inet 10.0.0.3/24 brd 10.0.0.255 scope global dynamic enp2s0
-3: br-438b364e3446    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-438b364e3446
+2: enp2s0    inet 192.0.2.10/24 brd 192.0.2.255 scope global dynamic enp2s0
+3: br-0000aaaa1111    inet 172.18.0.1/16 brd 172.18.255.255 scope global br-0000aaaa1111
 4: docker0    inet 172.17.0.1/16 scope global docker0
-5: tailscale0    inet 100.98.134.62/32 scope global tailscale0
+5: tailscale0    inet 100.64.0.10/32 scope global tailscale0
 6: dind0    inet 10.32.0.1/16 scope global dind0
 7: umbrel-vm    inet 10.203.0.1/24 scope global umbrel-vm
 8: wlp3s0    inet 192.168.50.7/24 scope global wlp3s0"""
         def fake_output(cmd, text=True):
-            return "default via 10.0.0.1 dev enp2s0 proto dhcp" if "route" in cmd else umbrel
+            return "default via 192.0.2.1 dev enp2s0 proto dhcp" if "route" in cmd else umbrel
         physical = {"enp2s0", "wlp3s0"}
         with mock.patch("subprocess.check_output", side_effect=fake_output), \
              mock.patch.object(netscan, "is_physical_iface", side_effect=lambda n: n in physical):
-            self.assertEqual(netscan.detect_local_subnets(), ["10.0.0.0/24", "192.168.50.0/24"])
+            self.assertEqual(netscan.detect_local_subnets(), ["192.0.2.0/24", "192.168.50.0/24"])
 
 
 if __name__ == "__main__":
